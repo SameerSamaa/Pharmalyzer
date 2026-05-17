@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, RotateCcw, Pill, Stethoscope } from "lucide-react";
+import { Send, Bot, User, Loader2, RotateCcw, Pill, Stethoscope, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -14,30 +14,37 @@ interface Message {
 
 const SUGGESTIONS = [
   { icon: Pill, label: "What is Calpol used for?" },
-  { icon: Pill, label: "Tell me about Augmentin" },
   { icon: Pill, label: "What is Myteka prescribed for?" },
   { icon: Stethoscope, label: "I have severe back pain" },
-  { icon: Stethoscope, label: "My child has high fever" },
-  { icon: Stethoscope, label: "I feel chest tightness" },
+  { icon: Stethoscope, label: "I have a chest infection" },
+  { icon: MapPin, label: "Best cardiologist in Karachi" },
+  { icon: MapPin, label: "Good hospital for chest in Lahore" },
 ];
 
 function formatMarkdown(text: string): string {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/^• /gm, "")
-    .replace(/\n• /g, "\n")
-    .replace(/^(•\s)/gm, "")
-    .split("\n")
-    .map((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return "";
-      if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
-        return `<li>${trimmed.replace(/^[•\-]\s*/, "")}</li>`;
-      }
-      return `<p>${trimmed}</p>`;
-    })
-    .join("")
-    .replace(/(<li>.*?<\/li>)+/gs, (match) => `<ul>${match}</ul>`);
+  // Bold
+  let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  // Convert lines to elements
+  const lines = html.split("\n");
+  const out: string[] = [];
+  let inList = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (inList) { out.push("</ul>"); inList = false; }
+      continue;
+    }
+    if (trimmed.startsWith("• ") || trimmed.startsWith("- ") || trimmed.match(/^\d+\.\s/)) {
+      if (!inList) { out.push("<ul>"); inList = true; }
+      out.push(`<li>${trimmed.replace(/^[•\-]\s*/, "").replace(/^\d+\.\s*/, "")}</li>`);
+    } else {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push(`<p>${trimmed}</p>`);
+    }
+  }
+  if (inList) out.push("</ul>");
+  return out.join("");
 }
 
 function MessageBubble({ message }: { message: Message }) {
@@ -65,9 +72,7 @@ function MessageBubble({ message }: { message: Message }) {
         ) : (
           <div
             className="prose prose-sm max-w-none [&_strong]:font-semibold [&_strong]:text-foreground [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ul]:ml-4 [&_ul]:list-disc [&_li]:mb-1"
-            dangerouslySetInnerHTML={{
-              __html: formatMarkdown(message.content) || (message.streaming ? "" : ""),
-            }}
+            dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
           />
         )}
         {message.streaming && (
@@ -113,7 +118,6 @@ export function Chat() {
     setIsStreaming(true);
 
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
-
     abortRef.current = new AbortController();
 
     try {
@@ -124,20 +128,20 @@ export function Chat() {
         signal: abortRef.current.signal,
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error("Request failed");
-      }
+      if (!response.ok || !response.body) throw new Error("Request failed");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
@@ -148,9 +152,7 @@ export function Chat() {
               accumulated += data.content;
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: accumulated, streaming: true }
-                    : m
+                  m.id === assistantId ? { ...m, content: accumulated, streaming: true } : m
                 )
               );
             }
@@ -161,9 +163,7 @@ export function Chat() {
       }
 
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId ? { ...m, streaming: false } : m
-        )
+        prev.map((m) => (m.id === assistantId ? { ...m, streaming: false } : m))
       );
     } catch (err: unknown) {
       if ((err as Error)?.name === "AbortError") return;
@@ -194,10 +194,7 @@ export function Chat() {
   };
 
   const clearChat = () => {
-    if (isStreaming) {
-      abortRef.current?.abort();
-      setIsStreaming(false);
-    }
+    if (isStreaming) { abortRef.current?.abort(); setIsStreaming(false); }
     setMessages([]);
   };
 
@@ -210,10 +207,10 @@ export function Chat() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Bot className="w-6 h-6 text-primary" />
-            Medical Assistant
+            SUR — Medical Assistant
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Ask about medicines or describe your symptoms to find the right doctor
+            Ask about medicines, symptoms, or find doctors and hospitals near you
           </p>
         </div>
         {!isEmpty && (
@@ -232,9 +229,9 @@ export function Chat() {
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
                 <Bot className="w-8 h-8 text-primary" />
               </div>
-              <h2 className="text-xl font-semibold">How can I help you today?</h2>
+              <h2 className="text-xl font-semibold">Hi, I'm SUR</h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                Ask me about any medicine — its uses, benefits, side effects, and who makes it. Or describe your symptoms and I'll tell you which doctor to see.
+                Ask me about any medicine, describe your symptoms for doctor guidance, or find real doctors and hospitals in your city.
               </p>
             </div>
 
@@ -250,6 +247,11 @@ export function Chat() {
                 </button>
               ))}
             </div>
+
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-4 py-2">
+              <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span>Doctor &amp; hospital searches use live web data — results include source websites</span>
+            </div>
           </div>
         ) : (
           <>
@@ -261,8 +263,9 @@ export function Chat() {
                 <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-teal-600 text-white mt-1">
                   <Bot className="w-4 h-4" />
                 </div>
-                <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3">
+                <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">SUR is thinking...</span>
                 </div>
               </div>
             )}
@@ -281,7 +284,7 @@ export function Chat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about a medicine or describe your symptoms..."
+                placeholder="Ask about a medicine, your symptoms, or find a doctor in your city..."
                 className="flex-1 resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none min-h-[40px] max-h-32 py-2 px-2 leading-relaxed"
                 rows={1}
                 disabled={isStreaming}
@@ -292,11 +295,7 @@ export function Chat() {
                 disabled={!input.trim() || isStreaming}
                 className="shrink-0 rounded-xl h-9 w-9"
               >
-                {isStreaming ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
+                {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </Button>
             </form>
           </CardContent>

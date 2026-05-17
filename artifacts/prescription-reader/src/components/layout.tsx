@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Stethoscope, History, ScanLine, MessageCircle } from "lucide-react";
+import { FlaskConical, History, ScanLine, MessageCircle } from "lucide-react";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -9,8 +9,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-50 w-full border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 text-primary">
-            <Stethoscope className="w-6 h-6" />
-            <span className="font-semibold text-lg tracking-tight">RxScan</span>
+            <FlaskConical className="w-6 h-6" />
+            <span className="font-semibold text-lg tracking-tight">Pharmalyzer</span>
           </Link>
           <nav className="flex items-center gap-5">
             <Link
@@ -32,7 +32,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               className={`flex items-center gap-2 text-sm font-medium transition-colors hover:text-primary ${location.startsWith("/chat") ? "text-primary" : "text-muted-foreground"}`}
             >
               <MessageCircle className="w-4 h-4" />
-              <span className="hidden sm:inline">Ask RxBot</span>
+              <span className="hidden sm:inline">Ask SUR</span>
             </Link>
           </nav>
         </div>
