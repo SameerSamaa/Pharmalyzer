@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { isLocalDoctorQuery, detectCity, searchDoctorsInCity, type HospitalSearchResult } from "./hospital-scraper.js";
 
 const router: IRouter = Router();
 
@@ -10,111 +11,101 @@ You have three core capabilities:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. MEDICATION INFORMATION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-When a user asks about a medicine, drug, tablet, syrup, or capsule (e.g. "What is Calpol?", "Tell me about Augmentin", "What is Myteka used for?"):
+When asked about a medicine, drug, tablet, syrup, or capsule:
 
-Provide a structured response covering:
+Provide:
 • **What it is**: Drug name (brand + generic), drug class
-• **What it's used for**: Primary indications, conditions it treats
-• **How it works**: Simple patient-friendly mechanism
-• **Dosage forms**: Available strengths (e.g. 500mg tablet, 125mg/5ml syrup)
-• **Key benefits**: Why doctors prescribe it
-• **Important risks & side effects**: Common and serious ones to watch for
-• **Warnings**: Who should avoid it (pregnancy, kidney disease, allergies, interactions)
-• **Manufacturer**: The pharmaceutical company that makes it (mention both international originator and local Pakistani/South Asian generic manufacturers if known)
-• **Storage**: How to store it
+• **What it's used for**: Primary indications
+• **How it works**: Simple patient-friendly explanation
+• **Dosage forms**: Available strengths
+• **Key benefits**
+• **Important risks & side effects**
+• **Warnings**: Who should avoid it
+• **Manufacturer**: International originator + Pakistani generics if known
+• **Storage**
 
 Always end with: "⚠️ Always consult your doctor or pharmacist before starting or stopping any medication."
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 2. SYMPTOM → DOCTOR GUIDANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-When a user describes symptoms without specifying a city:
-
-• Identify the most likely specialist(s) to consult
+When a user describes symptoms:
+• Identify the most likely specialist(s)
 • Explain why that specialist handles those symptoms
-• Mention if they should see a General Physician (GP) first
-• Give urgency guidance: is this an emergency?
+• Give urgency guidance — is this an emergency?
 • Suggest 1-2 basic self-care steps while waiting
 
-Specialist mapping:
-- Back/spine/bone/joint pain → Orthopedic Surgeon
-- Heart/chest pain/palpitations → Cardiologist (if severe, ER first)
-- Skin rash/acne/eczema → Dermatologist
-- Eye problems/vision → Ophthalmologist
-- Ear/nose/throat → ENT Specialist
-- Stomach/digestion/liver → Gastroenterologist / Hepatologist
-- Kidney/urinary → Nephrologist / Urologist
-- Brain/headache/nerves → Neurologist
-- Mental health/anxiety/depression → Psychiatrist / Psychologist
-- Child illness → Pediatrician
-- Women's health/pregnancy → Gynecologist / Obstetrician
-- Diabetes/thyroid/hormones → Endocrinologist
-- Lungs/breathing/asthma/chest infection → Pulmonologist
-- Cancer → Oncologist
-- Teeth/gums → Dentist
-- Allergies/immunity → Allergist / Immunologist
-- Fever/infections/general → General Physician (GP) first
+For emergencies (severe chest pain, difficulty breathing, stroke, heavy bleeding): advise going to the nearest ER immediately.
 
 Always end with: "⚠️ This is general guidance only. Please consult a qualified doctor for proper diagnosis and treatment."
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 3. LOCAL DOCTOR & HOSPITAL SEARCH
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-When a user asks for doctors or hospitals in a specific Pakistani city (e.g. "good cardiologist in Karachi", "best hospital for chest infection in Lahore", "suggest a doctor for back pain in Islamabad"):
+When provided with LIVE HOSPITAL DATA in the context below, present it in this format:
 
-Use the web_search tool to find REAL, current information. Search for:
-- Specific doctor names, their specialization, hospital affiliation, and contact numbers
-- Hospital names, addresses, phone numbers, and specialties
-- Always cite the SOURCE WEBSITE from which you found the information
+**Doctors found for [condition] at [Hospital Name], [City]:**
+*(Source: [URL] — fetched [date])*
 
-Format your response as:
-**Recommended Doctors for [condition] in [city]:**
+1. **[Doctor Name]** — [Speciality]
+   🗓 OPD Days: [opd days]
+   ⏰ Timing: [timing]
+   🏥 Hospital: [Hospital Name]
+   📍 Address: [address]
+   📞 Contact: [phone]
 
-1. **Dr. [Full Name]** — [Specialization]
-   🏥 Hospital: [Hospital Name, Address]
-   📞 Contact: [Phone number]
-   🌐 Source: [website URL or name]
+[Repeat for each doctor]
 
-2. [next doctor...]
+After the list, add:
+> 💡 *Call the hospital to confirm availability and book an appointment. For more options, visit oladoc.com or marham.pk*
 
-**Top Hospitals for [condition] in [city]:**
-- [Hospital Name] — [why it's good for this condition]
-- [Phone/address if found]
+If no matching doctors were found in the live data, say clearly: "No matching doctors were found in our live data for this specialty at [hospital]. Please call [hospital phone] or check [url] for the full list."
 
-After listing doctors/hospitals, remind the user to:
-- Call ahead to confirm availability and timings
-- Verify information directly with the hospital
-- Check oladoc.com or marham.pk for more options and online appointments
-
-IMPORTANT: Always perform a web search for local doctor/hospital queries. Do not make up names or numbers. If you cannot find specific doctor contacts, say so clearly and direct the user to oladoc.com, marham.pk, or shifa.com.pk.
+IMPORTANT: Only present doctors from the LIVE DATA provided to you. Do not make up or guess any names, numbers, or details.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-TONE & FORMAT GUIDELINES
+TONE & FORMAT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Be warm, clear, and reassuring — you are talking to patients, not doctors
-- Use simple language; avoid excessive jargon
-- Use **bold** for section headers, bullet points for lists
-- If someone describes a potentially serious emergency (severe chest pain, difficulty breathing, stroke symptoms, heavy bleeding), immediately advise them to go to the nearest emergency room (ER/A&E)
-- Do NOT diagnose conditions — only guide on what type of doctor to see
-- You can respond in English or mix Urdu/Roman Urdu if the user writes that way`;
+- Warm, clear, and reassuring — talking to patients, not doctors
+- Use simple language; avoid jargon
+- Use **bold** for headers, bullet points for lists
+- You can respond in English or Roman Urdu if the user writes that way`;
 
-// Detect queries that need live local doctor/hospital search
-function isLocalMedicalQuery(message: string): boolean {
-  const lower = message.toLowerCase();
-  const cities = [
-    "karachi", "lahore", "islamabad", "rawalpindi", "faisalabad",
-    "multan", "peshawar", "quetta", "hyderabad", "sialkot", "gujranwala",
-    "abbottabad", "bahawalpur", "sukkur", "larkana"
-  ];
-  const medTerms = [
-    "doctor", "hospital", "clinic", "specialist", "surgeon", "physician",
-    "dr ", "best doctor", "good doctor", "suggest doctor", "recommend",
-    "where to go", "which hospital", "treatment center", "medical center"
-  ];
+function buildDoctorContext(results: HospitalSearchResult[], city: string): string {
+  if (results.length === 0) {
+    return `[LIVE DATA: No hospital data is currently available for ${city}. Direct the user to oladoc.com or marham.pk for finding doctors in ${city}, and remind them to call hospitals directly.]`;
+  }
 
-  const hasCity = cities.some(c => lower.includes(c));
-  const hasMed = medTerms.some(t => lower.includes(t));
-  return hasCity && hasMed;
+  let context = `[LIVE HOSPITAL DATA — fetched directly from hospital websites]\n\n`;
+
+  for (const result of results) {
+    if (result.error) {
+      context += `⚠️ ${result.source}: Could not fetch data (${result.error}). URL: ${result.sourceUrl}\n\n`;
+      continue;
+    }
+
+    context += `HOSPITAL: ${result.source}\n`;
+    context += `SOURCE URL: ${result.sourceUrl}\n`;
+    context += `FETCHED AT: ${result.fetchedAt} (Pakistan Time)\n`;
+    context += `CITY: ${city}\n`;
+
+    if (result.doctors.length === 0) {
+      context += `DOCTORS FOUND: None matching the requested specialty.\n`;
+    } else {
+      context += `DOCTORS FOUND (${result.doctors.length}):\n`;
+      result.doctors.forEach((d, i) => {
+        context += `${i + 1}. Name: ${d.name}\n`;
+        context += `   Specialty: ${d.speciality}\n`;
+        context += `   OPD Days: ${d.opd}\n`;
+        context += `   Timing: ${d.timing}\n`;
+        context += `   Hospital Phone: ${d.hospitalPhone}\n`;
+        context += `   Hospital Address: ${d.hospitalAddress}\n`;
+      });
+    }
+    context += `\n`;
+  }
+
+  return context;
 }
 
 router.post("/chat/message", async (req, res): Promise<void> => {
@@ -135,59 +126,52 @@ router.post("/chat/message", async (req, res): Promise<void> => {
   const recentHistory = Array.isArray(history) ? history.slice(-10) : [];
 
   try {
-    if (isLocalMedicalQuery(message)) {
-      // Use Responses API with web_search_preview for live doctor/hospital lookup
-      req.log.info({ message }, "Using web search for local medical query");
+    let systemPrompt = SYSTEM_PROMPT;
 
-      const inputMessages = [
-        ...recentHistory.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
-        { role: "user" as const, content: message },
-      ];
+    // If the user is asking about doctors/hospitals in a city, fetch live data
+    if (isLocalDoctorQuery(message)) {
+      const city = detectCity(message);
+      if (city) {
+        req.log.info({ message, city }, "Fetching live hospital data for local doctor query");
 
-      const stream = await (openai as any).responses.create({
-        model: "gpt-5.4",
-        instructions: SYSTEM_PROMPT,
-        tools: [{ type: "web_search_preview" }],
-        input: inputMessages,
-        stream: true,
-      });
-
-      for await (const event of stream) {
-        if (event.type === "response.output_text.delta" && event.delta) {
-          res.write(`data: ${JSON.stringify({ content: event.delta })}\n\n`);
+        try {
+          const results = await searchDoctorsInCity(message, city);
+          const doctorContext = buildDoctorContext(results, city);
+          systemPrompt = `${SYSTEM_PROMPT}\n\n${doctorContext}`;
+          req.log.info({ city, resultCount: results.length }, "Live hospital data fetched successfully");
+        } catch (fetchErr) {
+          req.log.warn({ fetchErr }, "Failed to fetch live hospital data, proceeding without it");
+          systemPrompt = `${SYSTEM_PROMPT}\n\n[LIVE DATA: Failed to fetch hospital data. Advise the user to visit kmh.org.pk/doctors/ for Karachi, or check oladoc.com and marham.pk. Do not make up any doctor names or numbers.]`;
         }
       }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
-    } else {
-      // Use streaming chat completions for regular queries
-      const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...recentHistory,
-        { role: "user", content: message },
-      ];
-
-      const stream = await openai.chat.completions.create({
-        model: "gpt-5.4",
-        max_completion_tokens: 8192,
-        messages,
-        stream: true,
-      });
-
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content;
-        if (content) {
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
     }
+
+    // Stream response using chat completions
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+      { role: "system", content: systemPrompt },
+      ...recentHistory,
+      { role: "user", content: message },
+    ];
+
+    const stream = await openai.chat.completions.create({
+      model: "gpt-5.4",
+      max_completion_tokens: 8192,
+      messages,
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
   } catch (error) {
     req.log.error({ error }, "Chat stream failed");
-    res.write(`data: ${JSON.stringify({ error: "Failed to get response" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ error: "Failed to get response. Please try again." })}\n\n`);
     res.end();
   }
 });
