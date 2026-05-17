@@ -33,9 +33,14 @@ export const ListPrescriptionsResponseItem = zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
   "name": zod.string(),
+  "genericName": zod.string().nullish().describe('Generic\/INN name of the drug'),
+  "drugClass": zod.string().nullish().describe('Pharmacological class (e.g. Antibiotic, NSAID)'),
   "dosage": zod.string().nullish(),
   "frequency": zod.string().nullish(),
+  "duration": zod.string().nullish().describe('Treatment duration (e.g. 7 days, 2 weeks)'),
   "purpose": zod.string().nullish(),
+  "sideEffects": zod.string().nullish().describe('Common side effects to be aware of'),
+  "contraindications": zod.string().nullish().describe('Key contraindications and warnings'),
   "notes": zod.string().nullish()
 }))
 })
@@ -61,9 +66,14 @@ export const GetPrescriptionSummaryResponse = zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
   "name": zod.string(),
+  "genericName": zod.string().nullish().describe('Generic\/INN name of the drug'),
+  "drugClass": zod.string().nullish().describe('Pharmacological class (e.g. Antibiotic, NSAID)'),
   "dosage": zod.string().nullish(),
   "frequency": zod.string().nullish(),
+  "duration": zod.string().nullish().describe('Treatment duration (e.g. 7 days, 2 weeks)'),
   "purpose": zod.string().nullish(),
+  "sideEffects": zod.string().nullish().describe('Common side effects to be aware of'),
+  "contraindications": zod.string().nullish().describe('Key contraindications and warnings'),
   "notes": zod.string().nullish()
 }))
 }))
@@ -91,9 +101,14 @@ export const AnalyzePrescriptionResponse = zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
   "name": zod.string(),
+  "genericName": zod.string().nullish().describe('Generic\/INN name of the drug'),
+  "drugClass": zod.string().nullish().describe('Pharmacological class (e.g. Antibiotic, NSAID)'),
   "dosage": zod.string().nullish(),
   "frequency": zod.string().nullish(),
+  "duration": zod.string().nullish().describe('Treatment duration (e.g. 7 days, 2 weeks)'),
   "purpose": zod.string().nullish(),
+  "sideEffects": zod.string().nullish().describe('Common side effects to be aware of'),
+  "contraindications": zod.string().nullish().describe('Key contraindications and warnings'),
   "notes": zod.string().nullish()
 }))
 })
@@ -119,9 +134,14 @@ export const GetPrescriptionResponse = zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
   "name": zod.string(),
+  "genericName": zod.string().nullish().describe('Generic\/INN name of the drug'),
+  "drugClass": zod.string().nullish().describe('Pharmacological class (e.g. Antibiotic, NSAID)'),
   "dosage": zod.string().nullish(),
   "frequency": zod.string().nullish(),
+  "duration": zod.string().nullish().describe('Treatment duration (e.g. 7 days, 2 weeks)'),
   "purpose": zod.string().nullish(),
+  "sideEffects": zod.string().nullish().describe('Common side effects to be aware of'),
+  "contraindications": zod.string().nullish().describe('Key contraindications and warnings'),
   "notes": zod.string().nullish()
 }))
 })

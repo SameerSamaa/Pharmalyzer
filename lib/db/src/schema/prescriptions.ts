@@ -17,9 +17,14 @@ export const medicationsTable = pgTable("medications", {
   id: serial("id").primaryKey(),
   prescriptionId: integer("prescription_id").notNull().references(() => prescriptionsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  genericName: text("generic_name"),
+  drugClass: text("drug_class"),
   dosage: text("dosage"),
   frequency: text("frequency"),
+  duration: text("duration"),
   purpose: text("purpose"),
+  sideEffects: text("side_effects"),
+  contraindications: text("contraindications"),
   notes: text("notes"),
 });
 

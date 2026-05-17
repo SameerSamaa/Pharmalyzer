@@ -146,12 +146,27 @@ components:
           type: integer
         name:
           type: string
+        genericName:
+          type: ["string", "null"]
+          description: Generic/INN name of the drug
+        drugClass:
+          type: ["string", "null"]
+          description: Pharmacological class (e.g. Antibiotic, NSAID)
         dosage:
           type: ["string", "null"]
         frequency:
           type: ["string", "null"]
+        duration:
+          type: ["string", "null"]
+          description: Treatment duration (e.g. 7 days, 2 weeks)
         purpose:
           type: ["string", "null"]
+        sideEffects:
+          type: ["string", "null"]
+          description: Common side effects to be aware of
+        contraindications:
+          type: ["string", "null"]
+          description: Key contraindications and warnings
         notes:
           type: ["string", "null"]
       required:

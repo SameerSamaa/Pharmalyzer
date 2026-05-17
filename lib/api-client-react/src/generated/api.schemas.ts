@@ -17,12 +17,37 @@ export interface Medication {
   id: number;
   prescriptionId: number;
   name: string;
+  /**
+     * Generic/INN name of the drug
+     * @nullable
+     */
+  genericName?: string | null;
+  /**
+     * Pharmacological class (e.g. Antibiotic, NSAID)
+     * @nullable
+     */
+  drugClass?: string | null;
   /** @nullable */
   dosage?: string | null;
   /** @nullable */
   frequency?: string | null;
+  /**
+     * Treatment duration (e.g. 7 days, 2 weeks)
+     * @nullable
+     */
+  duration?: string | null;
   /** @nullable */
   purpose?: string | null;
+  /**
+     * Common side effects to be aware of
+     * @nullable
+     */
+  sideEffects?: string | null;
+  /**
+     * Key contraindications and warnings
+     * @nullable
+     */
+  contraindications?: string | null;
   /** @nullable */
   notes?: string | null;
 }

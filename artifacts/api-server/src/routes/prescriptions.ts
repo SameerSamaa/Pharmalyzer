@@ -61,6 +61,65 @@ router.get("/prescriptions/summary", async (req, res): Promise<void> => {
   });
 });
 
+const PRESCRIPTION_SYSTEM_PROMPT = `You are an expert clinical pharmacist and medical OCR specialist with 20+ years of experience reading handwritten prescriptions from South Asian (Pakistan, India, Bangladesh) and international medical practices.
+
+Your task is to extract ALL medication information from the prescription image, even if it is:
+- Blurry, out of focus, or low resolution
+- Poorly lit, overexposed, or underexposed
+- Photographed at an angle or partially obscured
+- Written in difficult-to-read handwriting
+- Using heavy abbreviations, shorthand, or regional medical terminology
+- Mixed languages (English + Urdu/Hindi script)
+- Faded ink or stained paper
+
+EXTRACTION STRATEGY FOR DIFFICULT IMAGES:
+1. Use contextual medical knowledge to infer partially legible drug names — e.g., "Augment" → Augmentin, "Parace" → Paracetamol, "Metform" → Metformin
+2. Cross-reference dosage patterns: if you see "500" near a drug, it's likely the strength in mg
+3. Common South Asian prescription abbreviations to recognize:
+   - OD / O.D. = Once daily
+   - BD / B.D. = Twice daily  
+   - TDS / T.D.S. = Three times daily
+   - QDS / QID = Four times daily
+   - HS / H.S. = At bedtime
+   - AC = Before meals, PC = After meals
+   - SOS / PRN = As needed
+   - Tabs / Cap / Syr / Inj / Susp / Supp / Drops = dosage form
+   - × or x followed by number = duration in days
+   - Rx or ℞ = prescription symbol (ignore this)
+4. If a drug name is partially visible, use your pharmacological knowledge to identify the most likely drug based on: visible letters, associated dosage, condition context, common prescribing patterns in South Asia
+5. Look for the doctor's clinical context clues: diagnosis hints, specialty (cardiologist → cardiac drugs, etc.)
+
+Respond ONLY with a valid JSON object in this EXACT format (no markdown, no extra text):
+{
+  "patientName": "string or null",
+  "doctorName": "string or null",
+  "imageQuality": "good|fair|poor",
+  "medications": [
+    {
+      "name": "Brand name as written on prescription",
+      "genericName": "INN/generic name of the active ingredient",
+      "drugClass": "Pharmacological class (e.g. Antibiotic - Penicillin, NSAID, Proton Pump Inhibitor, ACE Inhibitor, Antidiabetic - Biguanide)",
+      "dosage": "Strength and form (e.g. 500mg tablet, 125mg/5ml syrup, 40mg capsule)",
+      "frequency": "Full plain-English frequency (e.g. Twice daily after meals, Once at bedtime)",
+      "duration": "Treatment duration (e.g. 7 days, 2 weeks, 1 month, or null if not specified)",
+      "purpose": "Clear patient-friendly explanation of what this drug treats or does (2-3 sentences)",
+      "sideEffects": "The 3-4 most important common side effects the patient should know about",
+      "contraindications": "Key warnings: who should NOT take this drug or important interactions (e.g. Avoid in pregnancy, Do not take with alcohol, Monitor blood sugar)",
+      "notes": "Special instructions from the prescription (e.g. Take with food, Avoid sunlight, Complete full course) or null"
+    }
+  ]
+}
+
+CRITICAL RULES:
+- Extract EVERY medication visible, even if only partially legible — make your best inference
+- NEVER return an empty medications array unless the image contains absolutely no prescription content
+- For purpose: write for a patient, not a doctor. Be specific about what condition it treats
+- For sideEffects: list practical ones the patient will notice (nausea, drowsiness, etc.)
+- For contraindications: include pregnancy category if relevant, major drug interactions, key warnings
+- If image quality is poor, still attempt extraction and set imageQuality to "poor"
+- Expand ALL abbreviations in frequency field to full readable text
+- Include duration only if explicitly written on prescription`;
+
 router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
   const parsed = AnalyzePrescriptionBody.safeParse(req.body);
   if (!parsed.success) {
@@ -75,33 +134,11 @@ router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-5.4",
-      max_completion_tokens: 4096,
+      max_completion_tokens: 8192,
       messages: [
         {
           role: "system",
-          content: `You are a medical prescription reader. Analyze the handwritten prescription image and extract all medications listed.
-
-Respond ONLY with a valid JSON object in this exact format:
-{
-  "patientName": "string or null",
-  "doctorName": "string or null",
-  "medications": [
-    {
-      "name": "medication name",
-      "dosage": "dosage amount and form (e.g. 500mg tablet) or null",
-      "frequency": "how often to take (e.g. twice daily, TDS) or null",
-      "purpose": "what this medication is used to treat (explain clearly for a patient)",
-      "notes": "any special instructions or null"
-    }
-  ]
-}
-
-Rules:
-- Extract ALL medications visible in the prescription
-- For purpose, always provide a clear patient-friendly explanation of what the drug treats
-- If you cannot read part of the prescription clearly, make your best attempt and note it
-- Expand common medical abbreviations (e.g. TDS = three times daily, BD = twice daily, OD = once daily)
-- If no medications can be identified, return an empty medications array`
+          content: PRESCRIPTION_SYSTEM_PROMPT,
         },
         {
           role: "user",
@@ -110,11 +147,12 @@ Rules:
               type: "image_url",
               image_url: {
                 url: `data:${mimeType};base64,${imageData}`,
+                detail: "high",
               },
             },
             {
               type: "text",
-              text: "Please analyze this prescription and extract all medications with their dosages, frequencies, and purposes.",
+              text: "Please analyze this prescription image carefully. Extract every medication you can identify, even if the image is blurry or handwriting is unclear. Use your medical knowledge to infer partially legible drug names. Provide complete medication details including generic names, drug class, side effects and contraindications.",
             },
           ],
         },
@@ -127,11 +165,17 @@ Rules:
     let analysisData: {
       patientName?: string | null;
       doctorName?: string | null;
+      imageQuality?: string | null;
       medications: Array<{
         name: string;
+        genericName?: string | null;
+        drugClass?: string | null;
         dosage?: string | null;
         frequency?: string | null;
+        duration?: string | null;
         purpose?: string | null;
+        sideEffects?: string | null;
+        contraindications?: string | null;
         notes?: string | null;
       }>;
     };
@@ -161,9 +205,14 @@ Rules:
         analysisData.medications.map((med) => ({
           prescriptionId: prescription.id,
           name: med.name,
+          genericName: med.genericName ?? null,
+          drugClass: med.drugClass ?? null,
           dosage: med.dosage ?? null,
           frequency: med.frequency ?? null,
+          duration: med.duration ?? null,
           purpose: med.purpose ?? null,
+          sideEffects: med.sideEffects ?? null,
+          contraindications: med.contraindications ?? null,
           notes: med.notes ?? null,
         }))
       );
