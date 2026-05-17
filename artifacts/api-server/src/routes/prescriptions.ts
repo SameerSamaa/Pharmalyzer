@@ -151,6 +151,8 @@ Rules:
         patientName: analysisData.patientName ?? null,
         doctorName: analysisData.doctorName ?? null,
         rawAnalysis: content,
+        imageData,
+        imageMimeType: mimeType,
       })
       .returning();
 

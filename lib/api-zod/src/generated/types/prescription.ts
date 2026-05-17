@@ -17,5 +17,15 @@ export interface Prescription {
   doctorName?: string | null;
   /** @nullable */
   rawAnalysis?: string | null;
+  /**
+     * Base64-encoded prescription image
+     * @nullable
+     */
+  imageData?: string | null;
+  /**
+     * MIME type of the stored image
+     * @nullable
+     */
+  imageMimeType?: string | null;
   medications: Medication[];
 }

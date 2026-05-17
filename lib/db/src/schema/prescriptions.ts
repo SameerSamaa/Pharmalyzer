@@ -9,6 +9,8 @@ export const prescriptionsTable = pgTable("prescriptions", {
   patientName: text("patient_name"),
   doctorName: text("doctor_name"),
   rawAnalysis: text("raw_analysis"),
+  imageData: text("image_data"),
+  imageMimeType: text("image_mime_type"),
 });
 
 export const medicationsTable = pgTable("medications", {

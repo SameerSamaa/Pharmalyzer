@@ -27,6 +27,8 @@ export const ListPrescriptionsResponseItem = zod.object({
   "patientName": zod.string().nullish(),
   "doctorName": zod.string().nullish(),
   "rawAnalysis": zod.string().nullish(),
+  "imageData": zod.string().nullish().describe('Base64-encoded prescription image'),
+  "imageMimeType": zod.string().nullish().describe('MIME type of the stored image'),
   "medications": zod.array(zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
@@ -53,6 +55,8 @@ export const GetPrescriptionSummaryResponse = zod.object({
   "patientName": zod.string().nullish(),
   "doctorName": zod.string().nullish(),
   "rawAnalysis": zod.string().nullish(),
+  "imageData": zod.string().nullish().describe('Base64-encoded prescription image'),
+  "imageMimeType": zod.string().nullish().describe('MIME type of the stored image'),
   "medications": zod.array(zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
@@ -81,6 +85,8 @@ export const AnalyzePrescriptionResponse = zod.object({
   "patientName": zod.string().nullish(),
   "doctorName": zod.string().nullish(),
   "rawAnalysis": zod.string().nullish(),
+  "imageData": zod.string().nullish().describe('Base64-encoded prescription image'),
+  "imageMimeType": zod.string().nullish().describe('MIME type of the stored image'),
   "medications": zod.array(zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
@@ -107,6 +113,8 @@ export const GetPrescriptionResponse = zod.object({
   "patientName": zod.string().nullish(),
   "doctorName": zod.string().nullish(),
   "rawAnalysis": zod.string().nullish(),
+  "imageData": zod.string().nullish().describe('Base64-encoded prescription image'),
+  "imageMimeType": zod.string().nullish().describe('MIME type of the stored image'),
   "medications": zod.array(zod.object({
   "id": zod.number(),
   "prescriptionId": zod.number(),
