@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Prescription Reader"
+version = "1.0.0"
+id = "artifacts/prescription-reader"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26266
+
+[services.development]
+run = "pnpm --filter @workspace/prescription-reader run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/prescription-reader", "run", "build" ]
+publicDir = "artifacts/prescription-reader/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26266"
+BASE_PATH = "/"
