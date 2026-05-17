@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Stethoscope, History, ScanLine } from "lucide-react";
+import { Stethoscope, History, ScanLine, MessageCircle } from "lucide-react";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -12,20 +12,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <Stethoscope className="w-6 h-6" />
             <span className="font-semibold text-lg tracking-tight">RxScan</span>
           </Link>
-          <nav className="flex items-center gap-6">
-            <Link 
-              href="/" 
+          <nav className="flex items-center gap-5">
+            <Link
+              href="/"
               className={`flex items-center gap-2 text-sm font-medium transition-colors hover:text-primary ${location === "/" ? "text-primary" : "text-muted-foreground"}`}
             >
               <ScanLine className="w-4 h-4" />
               <span className="hidden sm:inline">New Scan</span>
             </Link>
-            <Link 
-              href="/history" 
+            <Link
+              href="/history"
               className={`flex items-center gap-2 text-sm font-medium transition-colors hover:text-primary ${location.startsWith("/history") ? "text-primary" : "text-muted-foreground"}`}
             >
               <History className="w-4 h-4" />
               <span className="hidden sm:inline">History</span>
+            </Link>
+            <Link
+              href="/chat"
+              className={`flex items-center gap-2 text-sm font-medium transition-colors hover:text-primary ${location.startsWith("/chat") ? "text-primary" : "text-muted-foreground"}`}
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Ask RxBot</span>
             </Link>
           </nav>
         </div>

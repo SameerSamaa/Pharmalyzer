@@ -7,6 +7,7 @@ import { Layout } from "@/components/layout";
 import { Home } from "@/pages/home";
 import { History } from "@/pages/history";
 import { PrescriptionDetail } from "@/pages/prescription-detail";
+import { Chat } from "@/pages/chat";
 
 const queryClient = new QueryClient();
 
@@ -17,6 +18,7 @@ function Router() {
         <Route path="/" component={Home} />
         <Route path="/history" component={History} />
         <Route path="/prescriptions/:id" component={PrescriptionDetail} />
+        <Route path="/chat" component={Chat} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
