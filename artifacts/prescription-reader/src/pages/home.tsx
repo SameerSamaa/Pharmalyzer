@@ -13,10 +13,12 @@ async function preprocessImage(file: File): Promise<{ base64: string; mimeType: 
     const objectUrl = URL.createObjectURL(file);
 
     img.onload = () => {
+      // Cap at 1600px on the longest side — enough for AI, small enough to send
+      const MAX_DIM = 1600;
+      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
       const canvas = document.createElement("canvas");
-      const scale = Math.min(1, 2048 / Math.max(img.width, img.height));
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
 
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -24,34 +26,26 @@ async function preprocessImage(file: File): Promise<{ base64: string; mimeType: 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
 
-      // Enhance contrast and sharpen for better OCR
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
+      // Contrast boost + background cleaning for better OCR
+      const contrast = 1.4;
+      const brightness = 10;
+      const enhance = (v: number) =>
+        Math.min(255, Math.max(0, contrast * (v - 128) + 128 + brightness));
 
-        // Convert to grayscale luminance for analysis
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
         const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-        // Boost contrast: push dark pixels darker, light pixels lighter
-        const contrast = 1.4;
-        const brightness = 10;
-        const enhance = (v: number) => Math.min(255, Math.max(0, contrast * (v - 128) + 128 + brightness));
-
-        data[i] = enhance(r);
+        data[i]     = enhance(r);
         data[i + 1] = enhance(g);
         data[i + 2] = enhance(b);
 
-        // Reduce noise: if pixel is near-white, make it white (clean background)
-        const enhanced = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        if (enhanced > 210) {
-          data[i] = 255;
-          data[i + 1] = 255;
-          data[i + 2] = 255;
-        }
-        // Keep dark ink pixels dark
+        // Whiten near-white background noise
+        const post = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        if (post > 210) { data[i] = data[i + 1] = data[i + 2] = 255; }
+        // Darken ink
         if (lum < 80) {
-          data[i] = Math.max(0, data[i] - 20);
+          data[i]     = Math.max(0, data[i]     - 20);
           data[i + 1] = Math.max(0, data[i + 1] - 20);
           data[i + 2] = Math.max(0, data[i + 2] - 20);
         }
@@ -61,9 +55,21 @@ async function preprocessImage(file: File): Promise<{ base64: string; mimeType: 
       URL.revokeObjectURL(objectUrl);
 
       const mimeType = "image/jpeg";
-      const base64Full = canvas.toDataURL(mimeType, 0.95);
+      // Quality 0.88 — sharp enough for text, small enough to transmit fast
+      const base64Full = canvas.toDataURL(mimeType, 0.88);
       const base64 = base64Full.split(",")[1];
       resolve({ base64, mimeType });
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      // Fallback: read the raw file
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const raw = reader.result as string;
+        resolve({ base64: raw.split(",")[1], mimeType: file.type });
+      };
+      reader.readAsDataURL(file);
     };
 
     img.src = objectUrl;
