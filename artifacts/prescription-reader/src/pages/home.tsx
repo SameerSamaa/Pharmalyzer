@@ -7,7 +7,62 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
-async function preprocessImage(file: File): Promise<{ base64: string; mimeType: string }> {
+interface PreprocessResult {
+  base64: string;
+  mimeType: string;
+  enhanced: boolean;
+}
+
+/** Analyse pixel data to determine if the image needs enhancement.
+ *  Returns true when the image is blurry, too dark, or low-contrast. */
+function needsEnhancement(data: Uint8ClampedArray, width: number, height: number): boolean {
+  // Sample every 4th row and column for speed
+  const step = 4;
+  const lums: number[] = [];
+
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const i = (y * width + x) * 4;
+      lums.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    }
+  }
+
+  // Mean luminance — dark images need brightening
+  const mean = lums.reduce((s, v) => s + v, 0) / lums.length;
+
+  // Standard deviation of luminance — low std-dev = washed-out / low contrast
+  const variance = lums.reduce((s, v) => s + (v - mean) ** 2, 0) / lums.length;
+  const stdDev = Math.sqrt(variance);
+
+  // Laplacian sharpness: measure edge strength via neighbour differences
+  let edgeSum = 0;
+  let edgeCount = 0;
+  for (let y = step; y < height - step; y += step) {
+    for (let x = step; x < width - step; x += step) {
+      const idx = (y * width + x) * 4;
+      const left  = (y * width + (x - step)) * 4;
+      const right = (y * width + (x + step)) * 4;
+      const up    = ((y - step) * width + x) * 4;
+      const down  = ((y + step) * width + x) * 4;
+      const center = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      const l = 0.299 * data[left]  + 0.587 * data[left + 1]  + 0.114 * data[left + 2];
+      const r = 0.299 * data[right] + 0.587 * data[right + 1] + 0.114 * data[right + 2];
+      const u = 0.299 * data[up]    + 0.587 * data[up + 1]    + 0.114 * data[up + 2];
+      const d = 0.299 * data[down]  + 0.587 * data[down + 1]  + 0.114 * data[down + 2];
+      edgeSum += Math.abs(l + r + u + d - 4 * center);
+      edgeCount++;
+    }
+  }
+  const sharpness = edgeCount > 0 ? edgeSum / edgeCount : 0;
+
+  const isDark        = mean < 100;          // average pixel too dark
+  const isLowContrast = stdDev < 40;         // very flat histogram
+  const isBlurry      = sharpness < 8;       // weak edges = blurry
+
+  return isDark || isLowContrast || isBlurry;
+}
+
+async function preprocessImage(file: File): Promise<PreprocessResult> {
   return new Promise((resolve) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -17,7 +72,7 @@ async function preprocessImage(file: File): Promise<{ base64: string; mimeType: 
       const MAX_DIM = 1600;
       const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
       const canvas = document.createElement("canvas");
-      canvas.width = Math.round(img.width * scale);
+      canvas.width  = Math.round(img.width  * scale);
       canvas.height = Math.round(img.height * scale);
 
       const ctx = canvas.getContext("2d")!;
@@ -25,49 +80,55 @@ async function preprocessImage(file: File): Promise<{ base64: string; mimeType: 
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
-
-      // Contrast boost + background cleaning for better OCR
-      const contrast = 1.4;
-      const brightness = 10;
-      const enhance = (v: number) =>
-        Math.min(255, Math.max(0, contrast * (v - 128) + 128 + brightness));
-
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2];
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-
-        data[i]     = enhance(r);
-        data[i + 1] = enhance(g);
-        data[i + 2] = enhance(b);
-
-        // Whiten near-white background noise
-        const post = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        if (post > 210) { data[i] = data[i + 1] = data[i + 2] = 255; }
-        // Darken ink
-        if (lum < 80) {
-          data[i]     = Math.max(0, data[i]     - 20);
-          data[i + 1] = Math.max(0, data[i + 1] - 20);
-          data[i + 2] = Math.max(0, data[i + 2] - 20);
-        }
-      }
-
-      ctx.putImageData(imageData, 0, 0);
-      URL.revokeObjectURL(objectUrl);
-
       const mimeType = "image/jpeg";
-      // Quality 0.88 — sharp enough for text, small enough to transmit fast
-      const base64Full = canvas.toDataURL(mimeType, 0.88);
-      const base64 = base64Full.split(",")[1];
-      resolve({ base64, mimeType });
+
+      const shouldEnhance = needsEnhancement(data, canvas.width, canvas.height);
+
+      if (shouldEnhance) {
+        // Enhancement pipeline: contrast boost + background whitening + ink darkening
+        const contrast   = 1.4;
+        const brightness = 10;
+        const enhance = (v: number) =>
+          Math.min(255, Math.max(0, contrast * (v - 128) + 128 + brightness));
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r   = data[i], g = data[i + 1], b = data[i + 2];
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+          data[i]     = enhance(r);
+          data[i + 1] = enhance(g);
+          data[i + 2] = enhance(b);
+
+          // Whiten near-white background noise
+          const post = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          if (post > 210) { data[i] = data[i + 1] = data[i + 2] = 255; }
+
+          // Darken ink strokes
+          if (lum < 80) {
+            data[i]     = Math.max(0, data[i]     - 20);
+            data[i + 1] = Math.max(0, data[i + 1] - 20);
+            data[i + 2] = Math.max(0, data[i + 2] - 20);
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        URL.revokeObjectURL(objectUrl);
+        const base64 = canvas.toDataURL(mimeType, 0.88).split(",")[1];
+        resolve({ base64, mimeType, enhanced: true });
+      } else {
+        // Image is already clear — export as-is at high quality, no pixel manipulation
+        URL.revokeObjectURL(objectUrl);
+        const base64 = canvas.toDataURL(mimeType, 0.95).split(",")[1];
+        resolve({ base64, mimeType, enhanced: false });
+      }
     };
 
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      // Fallback: read the raw file
       const reader = new FileReader();
       reader.onloadend = () => {
         const raw = reader.result as string;
-        resolve({ base64: raw.split(",")[1], mimeType: file.type });
+        resolve({ base64: raw.split(",")[1], mimeType: file.type, enhanced: false });
       };
       reader.readAsDataURL(file);
     };
@@ -80,6 +141,7 @@ export function Home() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [isPreprocessing, setIsPreprocessing] = useState(false);
+  const [wasEnhanced, setWasEnhanced] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -95,6 +157,7 @@ export function Home() {
       return;
     }
     setFile(selectedFile);
+    setWasEnhanced(false);
     const objectUrl = URL.createObjectURL(selectedFile);
     setPreviewUrl(objectUrl);
   }, [toast]);
@@ -121,6 +184,7 @@ export function Home() {
       const processed = await preprocessImage(file);
       base64Data = processed.base64;
       mimeType = processed.mimeType;
+      setWasEnhanced(processed.enhanced);
     } catch {
       // Fallback to raw file if preprocessing fails
       const reader = new FileReader();
@@ -130,6 +194,7 @@ export function Home() {
       });
       base64Data = raw.split(",")[1];
       mimeType = file.type;
+      setWasEnhanced(false);
     } finally {
       setIsPreprocessing(false);
     }
@@ -156,8 +221,12 @@ export function Home() {
   const isProcessing = isPreprocessing || analyzeMutation.isPending;
 
   const loadingLabel = isPreprocessing
-    ? "Enhancing image quality..."
+    ? "Checking image quality..."
     : "Analyzing prescription...";
+
+  const loadingSubLabel = isPreprocessing
+    ? (wasEnhanced ? "Enhancing clarity for better OCR" : "Image is clear — sending as-is")
+    : "Extracting clinical data with AI";
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -211,9 +280,7 @@ export function Home() {
               >
                 <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
                 <h3 className="text-lg font-medium">{loadingLabel}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {isPreprocessing ? "Boosting contrast and clarity" : "Extracting clinical data with AI"}
-                </p>
+                <p className="text-sm text-muted-foreground">{loadingSubLabel}</p>
               </div>
             </div>
           )}
