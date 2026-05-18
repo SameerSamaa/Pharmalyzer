@@ -1,8 +1,18 @@
 import { Link, useLocation } from "wouter";
-import { FlaskConical, History, ScanLine, MessageCircle } from "lucide-react";
+import { FlaskConical, History, ScanLine, MessageCircle, LogOut, User } from "lucide-react";
+import { useAuth } from "@/context/auth";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const { user, logout } = useAuth();
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -34,6 +44,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <MessageCircle className="w-4 h-4" />
               <span className="hidden sm:inline">Ask SUR</span>
             </Link>
+
+            {/* User dropdown */}
+            {user && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <span className="hidden md:inline text-sm max-w-32 truncate">{user.email}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <div className="px-2 py-1.5">
+                    <p className="text-xs font-medium">{user.email}</p>
+                    <p className="text-xs text-muted-foreground">Signed in</p>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={logout}
+                    className="text-destructive focus:text-destructive cursor-pointer gap-2"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </nav>
         </div>
       </header>
