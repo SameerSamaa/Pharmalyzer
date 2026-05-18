@@ -54,7 +54,7 @@ function MessageBubble({ message }: { message: Message }) {
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       <div
         className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white mt-1 ${
-          isUser ? "bg-primary" : "bg-teal-600"
+          isUser ? "bg-primary" : "bg-primary"
         }`}
       >
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
@@ -260,7 +260,7 @@ export function Chat() {
             ))}
             {isStreaming && messages[messages.length - 1]?.role === "user" && (
               <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-teal-600 text-white mt-1">
+                <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-primary text-white mt-1">
                   <Bot className="w-4 h-4" />
                 </div>
                 <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">

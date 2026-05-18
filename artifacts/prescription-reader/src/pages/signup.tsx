@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { FlaskConical, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { PharmalyzerLogo } from "@/components/pharmalyzer-logo";
 import { useAuth } from "@/context/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,7 +89,7 @@ export function Signup() {
         {/* Logo */}
         <div className="flex flex-col items-center gap-2 text-center">
           <div className="flex items-center gap-2 text-primary">
-            <FlaskConical className="w-8 h-8" />
+            <PharmalyzerLogo size={36} />
             <span className="text-2xl font-bold tracking-tight">Pharmalyzer</span>
           </div>
           <p className="text-sm text-muted-foreground">Create your free account</p>
