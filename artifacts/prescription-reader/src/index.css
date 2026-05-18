@@ -336,3 +336,57 @@
     inset: -1px;
   }
 }
+
+/* ── Minimalistic hover micro-animations ──────────────────────────────────── */
+@layer base {
+  /* Smooth transitions on all interactive elements */
+  a, button, [role="button"] {
+    transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+
+  /* Buttons: very subtle upward nudge */
+  button:not(:disabled):hover,
+  [role="button"]:hover {
+    transform: translateY(-1px);
+  }
+
+  button:not(:disabled):active,
+  [role="button"]:active {
+    transform: translateY(0px);
+    transition-duration: 80ms;
+  }
+
+  /* Nav links: no vertical nudge, just color (they already have transition-colors) */
+  nav a:hover {
+    transform: none;
+  }
+
+  /* Cards: very subtle lift */
+  .card-hover-lift {
+    transition: box-shadow 200ms ease-out, transform 200ms ease-out;
+  }
+  .card-hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px -4px hsl(152 98% 27% / 0.12);
+  }
+
+  /* Logo icon: gentle scale on hover */
+  header a svg {
+    transition: transform 200ms ease-out;
+  }
+  header a:hover svg {
+    transform: scale(1.08);
+  }
+
+  /* Input fields: smooth border + ring transition */
+  input, textarea, select {
+    transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+
+  /* Dropdown / menu items */
+  [role="menuitem"] {
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+  }
+}
