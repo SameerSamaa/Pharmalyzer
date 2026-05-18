@@ -1,5 +1,5 @@
-import { Router, type IRouter } from "express";
-import { eq, count, desc } from "drizzle-orm";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { eq, count, desc, and } from "drizzle-orm";
 import { db, prescriptionsTable, medicationsTable } from "@workspace/db";
 import {
   AnalyzePrescriptionBody,
@@ -11,11 +11,24 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-async function getPrescriptionWithMedications(id: number) {
+// ── Auth guard ─────────────────────────────────────────────────────────────
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (!req.session.userId) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  next();
+}
+
+// Apply to every prescription route
+router.use("/prescriptions", requireAuth);
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+async function getPrescriptionWithMedications(id: number, userId: number) {
   const [prescription] = await db
     .select()
     .from(prescriptionsTable)
-    .where(eq(prescriptionsTable.id, id));
+    .where(and(eq(prescriptionsTable.id, id), eq(prescriptionsTable.userId, userId)));
 
   if (!prescription) return null;
 
@@ -27,36 +40,67 @@ async function getPrescriptionWithMedications(id: number) {
   return { ...prescription, medications };
 }
 
+// ── Routes ─────────────────────────────────────────────────────────────────
+
 router.get("/prescriptions", async (req, res): Promise<void> => {
+  const userId = req.session.userId!;
+
   const prescriptions = await db
     .select()
     .from(prescriptionsTable)
+    .where(eq(prescriptionsTable.userId, userId))
     .orderBy(desc(prescriptionsTable.createdAt));
 
   const withMeds = await Promise.all(
-    prescriptions.map((p) => getPrescriptionWithMedications(p.id))
+    prescriptions.map((p) => getPrescriptionWithMedications(p.id, userId))
   );
 
   res.json(withMeds.filter(Boolean));
 });
 
 router.get("/prescriptions/summary", async (req, res): Promise<void> => {
-  const [scanCount] = await db.select({ value: count() }).from(prescriptionsTable);
-  const [medCount] = await db.select({ value: count() }).from(medicationsTable);
+  const userId = req.session.userId!;
+
+  const [scanCount] = await db
+    .select({ value: count() })
+    .from(prescriptionsTable)
+    .where(eq(prescriptionsTable.userId, userId));
+
+  // Count medications that belong to this user's prescriptions
+  const userPrescriptions = await db
+    .select({ id: prescriptionsTable.id })
+    .from(prescriptionsTable)
+    .where(eq(prescriptionsTable.userId, userId));
+
+  const prescriptionIds = userPrescriptions.map((p) => p.id);
+
+  let medCount = 0;
+  if (prescriptionIds.length > 0) {
+    const medResults = await Promise.all(
+      prescriptionIds.map((pid) =>
+        db
+          .select({ value: count() })
+          .from(medicationsTable)
+          .where(eq(medicationsTable.prescriptionId, pid))
+      )
+    );
+    medCount = medResults.reduce((sum, r) => sum + Number(r[0]?.value ?? 0), 0);
+  }
 
   const recentPrescriptions = await db
     .select()
     .from(prescriptionsTable)
+    .where(eq(prescriptionsTable.userId, userId))
     .orderBy(desc(prescriptionsTable.createdAt))
     .limit(5);
 
   const recentWithMeds = await Promise.all(
-    recentPrescriptions.map((p) => getPrescriptionWithMedications(p.id))
+    recentPrescriptions.map((p) => getPrescriptionWithMedications(p.id, userId))
   );
 
   res.json({
     totalScans: scanCount?.value ?? 0,
-    totalMedications: medCount?.value ?? 0,
+    totalMedications: medCount,
     recentScans: recentWithMeds.filter(Boolean),
   });
 });
@@ -121,6 +165,8 @@ CRITICAL RULES:
 - Include duration only if explicitly written on prescription`;
 
 router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
+  const userId = req.session.userId!;
+
   const parsed = AnalyzePrescriptionBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -128,7 +174,6 @@ router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
   }
 
   const { imageData, mimeType } = parsed.data;
-
   req.log.info("Analyzing prescription image");
 
   try {
@@ -136,10 +181,7 @@ router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
       model: "gpt-5.4",
       max_completion_tokens: 8192,
       messages: [
-        {
-          role: "system",
-          content: PRESCRIPTION_SYSTEM_PROMPT,
-        },
+        { role: "system", content: PRESCRIPTION_SYSTEM_PROMPT },
         {
           role: "user",
           content: [
@@ -191,6 +233,7 @@ router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
     const [prescription] = await db
       .insert(prescriptionsTable)
       .values({
+        userId,
         status: "completed",
         patientName: analysisData.patientName ?? null,
         doctorName: analysisData.doctorName ?? null,
@@ -218,7 +261,7 @@ router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
       );
     }
 
-    const result = await getPrescriptionWithMedications(prescription.id);
+    const result = await getPrescriptionWithMedications(prescription.id, userId);
     res.json(result);
   } catch (error) {
     req.log.error({ error }, "Failed to analyze prescription");
@@ -227,13 +270,15 @@ router.post("/prescriptions/analyze", async (req, res): Promise<void> => {
 });
 
 router.get("/prescriptions/:id", async (req, res): Promise<void> => {
+  const userId = req.session.userId!;
+
   const params = GetPrescriptionParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const result = await getPrescriptionWithMedications(params.data.id);
+  const result = await getPrescriptionWithMedications(params.data.id, userId);
   if (!result) {
     res.status(404).json({ error: "Prescription not found" });
     return;
@@ -243,15 +288,23 @@ router.get("/prescriptions/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/prescriptions/:id", async (req, res): Promise<void> => {
+  const userId = req.session.userId!;
+
   const params = DeletePrescriptionParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
+  // Only delete if it belongs to the current user
   const [deleted] = await db
     .delete(prescriptionsTable)
-    .where(eq(prescriptionsTable.id, params.data.id))
+    .where(
+      and(
+        eq(prescriptionsTable.id, params.data.id),
+        eq(prescriptionsTable.userId, userId)
+      )
+    )
     .returning();
 
   if (!deleted) {
