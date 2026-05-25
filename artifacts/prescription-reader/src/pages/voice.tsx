@@ -74,13 +74,15 @@ export function Voice() {
   }, [isStreaming]);
 
   const handleMicClick = async () => {
-    if (status === "listening" || voice.state === "recording") {
+    if (voice.state === "recording") {
       await voice.stop();
-    } else if (status === "idle") {
-      synthRef.current.cancel();
-      setTranscript("");
-      await voice.start();
+      return;
     }
+    if (voice.state === "transcribing") return;
+    synthRef.current.cancel();
+    setStatus("idle");
+    setTranscript("");
+    await voice.start();
   };
 
   const handleClear = () => {

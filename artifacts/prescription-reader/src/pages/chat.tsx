@@ -113,11 +113,12 @@ export function Chat() {
   const toggleMic = async () => {
     if (isListening) {
       await voice.stop();
-    } else if (voice.state === "idle") {
-      synthRef.current.cancel();
-      setInput("");
-      await voice.start();
+      return;
     }
+    if (isTranscribing) return;
+    synthRef.current.cancel();
+    setInput("");
+    await voice.start();
   };
 
   const toggleSpeaker = () => {
