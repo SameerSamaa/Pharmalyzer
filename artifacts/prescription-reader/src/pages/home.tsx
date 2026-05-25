@@ -244,7 +244,7 @@ export function Home() {
           Intelligent Prescription Analysis
         </h1>
         <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
-          Upload a handwritten doctor's prescription. Our AI reads it — even blurry, angled, or poorly-lit photos — and extracts every medication with clinical detail.
+          Take a photo of any prescription and let AI identify medicines, explain their uses, and summarize important details in a simple, understandable way.
         </p>
       </div>
 
