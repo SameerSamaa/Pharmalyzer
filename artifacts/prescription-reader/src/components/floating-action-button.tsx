@@ -40,11 +40,12 @@ function FabOption({ icon, label, onClick, visible, delay }: FabOptionProps) {
 export function FloatingActionButton() {
   const [open, setOpen] = useState(false);
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { setPendingFile } = usePendingUpload();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
+  if (location.startsWith("/voice")) return null;
 
   const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -127,7 +127,7 @@ export function Voice() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col py-4 px-2" style={{ height: "calc(100dvh - 8rem)" }}>
+    <div className="max-w-2xl mx-auto flex flex-col px-2 pb-32">
 
       {/* Top bar */}
       <div className="w-full flex items-center justify-between shrink-0">
@@ -167,8 +167,8 @@ export function Voice() {
         )}
       </div>
 
-      {/* Conversation preview — scrollable, takes the remaining space */}
-      <div className="flex-1 min-h-0 overflow-y-auto w-full space-y-3 pr-1 -mr-1">
+      {/* Conversation preview */}
+      <div className="w-full space-y-3">
         {!hasMessages && (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-2">
             <p className="text-sm text-muted-foreground">
@@ -216,12 +216,12 @@ export function Voice() {
         )}
       </div>
 
-      {/* Mic button — fixed at bottom */}
-      <div className="flex flex-col items-center gap-2 pt-4 pb-2 shrink-0">
+      {/* Mic button — pinned to viewport bottom, always reachable */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 pointer-events-none">
         <button
           onClick={handleMicClick}
           aria-label={isActive ? "Stop listening" : "Start speaking"}
-          className={`relative w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/40 touch-manipulation ${
+          className={`pointer-events-auto relative w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition-all duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/40 touch-manipulation ${
             isActive
               ? "bg-red-500 hover:bg-red-600 scale-110"
               : voice.state === "transcribing"
