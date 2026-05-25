@@ -62,14 +62,16 @@ const HOSPITALS: Record<string, {
   },
 };
 
+const COMMON_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+};
+
 // ── KMH scraper ────────────────────────────────────────────────────────────
 
 async function fetchKMHDoctors(): Promise<Doctor[]> {
   const res = await fetch("https://kmh.org.pk/doctors/", {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
+    headers: COMMON_HEADERS,
     signal: AbortSignal.timeout(15000),
   });
 
@@ -104,38 +106,39 @@ async function fetchKMHDoctors(): Promise<Doctor[]> {
 }
 
 // ── Saifee Hospital scraper ────────────────────────────────────────────────
+// BUG FIX: WordPress encodes & as &#038; in href attributes.
+// We normalize HTML entities before parsing so the URL pattern is found correctly.
 
 async function fetchSaifeeDoctors(): Promise<Doctor[]> {
   const res = await fetch("https://saifeehospital.com.pk/doctors/", {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
+    headers: COMMON_HEADERS,
     signal: AbortSignal.timeout(15000),
   });
 
   if (!res.ok) throw new Error(`Saifee fetch failed: ${res.status}`);
-  const html = await res.text();
+  const rawHtml = await res.text();
+
+  // Normalize HTML entities so URL ampersands parse correctly
+  // WordPress encodes & as &#038; inside href attributes
+  const html = rawHtml.replace(/&#038;/g, "&").replace(/&amp;/g, "&");
 
   const doctors: Doctor[] = [];
+  const seen = new Set<string>();
 
-  // Each doctor card has an appointment URL with speciality and doctor name
   // Pattern: book-an-appointment?speciality=SPECIALITY&doctor=Dr.+Name
-  // Doctor display name is in .doctor-content a
-  const cardRegex =
-    /book-an-appointment\?speciality=([^&"]+)&(?:amp;)?doctor=([^"]+)["'][^>]*>[\s\S]*?<div class="doctor-content">\s*<a[^>]*>([^<]+)<\/a>/g;
+  // Both speciality and doctor name are URL-encoded with + for spaces
+  const urlRegex = /book-an-appointment\?speciality=([^&"#\s]+)&doctor=([^"&\s]+)/g;
 
   let m: RegExpExecArray | null;
-  while ((m = cardRegex.exec(html)) !== null) {
-    const rawSpeciality = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
-    const displayName = m[3].trim();
-    if (!displayName) continue;
+  while ((m = urlRegex.exec(html)) !== null) {
+    const speciality = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+    const name = decodeURIComponent(m[2].replace(/\+/g, " ")).trim();
+    if (!name || !speciality || seen.has(name)) continue;
+    seen.add(name);
 
-    // Try to extract timing from the hidden span after this card
-    // Pattern: <span class="timing" style="display: none;">...timingText...
     doctors.push({
-      name: displayName,
-      speciality: rawSpeciality
+      name,
+      speciality: speciality
         .split(" ")
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
         .join(" "),
@@ -149,52 +152,84 @@ async function fetchSaifeeDoctors(): Promise<Doctor[]> {
     });
   }
 
-  // Deduplicate by name
-  const seen = new Set<string>();
-  return doctors.filter(d => {
-    if (seen.has(d.name)) return false;
-    seen.add(d.name);
-    return true;
-  });
+  return doctors;
 }
 
 // ── LNH scraper ────────────────────────────────────────────────────────────
+// LNH only renders 12 doctors per page initial load, but supports per-specialty
+// filtering via ?spe={uuid}. We fetch ALL specialties in parallel and combine.
+// This is cached for 6 hours so the cost is paid once.
 
-async function fetchLNHDoctors(): Promise<Doctor[]> {
-  const res = await fetch("https://www.lnh.edu.pk/doctors", {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
-    signal: AbortSignal.timeout(15000),
+const LNH_SPECIALTY_UUIDS: { name: string; uuid: string }[] = [
+  { name: "Accident & Emergency",               uuid: "85985c2e-ded8-49ab-8052-bee2cfd07db0" },
+  { name: "Anaesthesiology",                    uuid: "7da52c73-ba32-4441-98b3-dc96f8938b58" },
+  { name: "Breast Surgery",                     uuid: "9acfc35f-1eea-4f0d-bc30-b1dc2fe70625" },
+  { name: "Cardiac Surgery",                    uuid: "48d84bb9-dfcb-4b1a-a8f6-485434c12aae" },
+  { name: "Cardiology",                         uuid: "48bcf1cb-e521-489a-9828-89acae7d23f5" },
+  { name: "Chest Medicine",                     uuid: "7132a8d8-a8fd-48f6-acf1-c5b8a00f9dca" },
+  { name: "Clinical Biochemistry",              uuid: "61d491b7-01b3-4bc2-8793-7167716a9ed3" },
+  { name: "Dental and Maxillofacial Surgery",   uuid: "470124db-13e7-4cdf-9a72-f387120a691b" },
+  { name: "Dermatology",                        uuid: "d949c730-3dfe-47b3-8964-cd9c8833f3b3" },
+  { name: "Diabetes, Endocrinology & Metabolism", uuid: "d6e197a4-eeb3-4c9a-aac1-462f03b550f4" },
+  { name: "E.N.T - Head and Neck Surgery",      uuid: "ecae73ea-b91a-4c20-8c56-d68388595fb3" },
+  { name: "Family Medicine",                    uuid: "520788ca-3cc6-49ab-a233-47c04716b9d2" },
+  { name: "Gastroenterology",                   uuid: "a119b08f-ff99-4600-9a0c-24d29d59a432" },
+  { name: "General Surgery",                    uuid: "0e0bd9d8-d3e5-400a-81b9-9e07bde02edf" },
+  { name: "Haematology & Bloodbank",            uuid: "71d491b7-01b3-4bc2-8793-7197716a9ed3" },
+  { name: "Histopathology and Cytology",        uuid: "51d491b7-01b3-4bc2-8793-7197716a9ed1" },
+  { name: "Internal Medicine",                  uuid: "b8530778-810a-42e3-9d91-fb0ae463c30e" },
+  { name: "Mental Health",                      uuid: "63e6f67d-617a-4649-9304-2b0de78670ab" },
+  { name: "Microbiology",                       uuid: "ad019ed5-ac35-43fa-b4bb-2a13f94ade41" },
+  { name: "Molecular Pathology",                uuid: "c1fbcdd6-c625-498e-8fd7-dc1dce7e47f8" },
+  { name: "Nephrology",                         uuid: "44225de1-87fd-43f4-b5e1-e174d5f808d1" },
+  { name: "Neurology",                          uuid: "207825fb-4313-43ca-9398-398ed6fbb0cf" },
+  { name: "Obstetrics and Gynaecology",         uuid: "6a463011-ba8e-47db-9536-f03e8cd26c93" },
+  { name: "Occupational Therapy",               uuid: "cc8aeb21-8a62-4624-8d66-d97a28dfc719" },
+  { name: "Oncology",                           uuid: "6ea35170-e61c-49c9-b041-200d0c4bdccb" },
+  { name: "Ophthalmology",                      uuid: "9878db75-d956-4724-a213-e1b12673a510" },
+  { name: "Orthopaedic Surgery",                uuid: "850e0c72-4519-4d76-8b69-afd48e4bebf4" },
+  { name: "Paediatric Cardiology",              uuid: "244a847e-d31c-4edb-a2a0-5f9b475be64c" },
+  { name: "Paediatric Surgery",                 uuid: "837cdba4-bf74-4a77-aa22-f7157c1c2cf9" },
+  { name: "Paeds Medicine",                     uuid: "7e729d7a-31bb-4fe0-9637-7e211768e0c4" },
+  { name: "Plastic and Reconstructive Surgery", uuid: "68037211-873c-4e34-a021-09fc72eb8581" },
+  { name: "Radiology & Imaging",                uuid: "86960002-3d98-4705-b03a-923571dfb63d" },
+  { name: "Rheumatology",                       uuid: "78b94340-0c5e-4b7f-b5c1-0664fbd1a1bc" },
+  { name: "Speech Therapy",                     uuid: "5dab48b5-d0a7-403f-9202-4ebe8d330ec6" },
+  { name: "Spinal and Neurosurgery",            uuid: "86629d6d-6b37-4352-ae56-859d295123ac" },
+  { name: "Thoracic Surgery",                   uuid: "9ddda56a-11fe-4bf1-8eff-71a17b7074a3" },
+  { name: "Urology",                            uuid: "40d3b353-a78f-419b-8767-ba3a2f643015" },
+  { name: "Vascular Surgery",                   uuid: "be5170ad-7426-440f-9d6d-0663f124c22d" },
+];
+
+// Individual specialty-page cache so we avoid re-fetching pages already loaded
+const lnhSpecialtyCache = new Map<string, { doctors: Doctor[]; fetchedAt: number }>();
+
+async function fetchLNHSpecialtyPage(uuid: string, specialtyName: string): Promise<Doctor[]> {
+  const cached = lnhSpecialtyCache.get(uuid);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.doctors;
+  }
+
+  const res = await fetch(`https://www.lnh.edu.pk/doctors?spe=${uuid}`, {
+    headers: COMMON_HEADERS,
+    signal: AbortSignal.timeout(12000),
   });
-
-  if (!res.ok) throw new Error(`LNH fetch failed: ${res.status}`);
+  if (!res.ok) return [];
   const html = await res.text();
 
   const doctors: Doctor[] = [];
 
   // Doctor name: <h5 class="name mb-0 mt-0 text-theme-colored">Dr. Name</h5>
-  // Speciality: <p class="font-14 font-weight-500">\n  Designation\n  <br />\n  Speciality\n</p>
-  const cardRegex =
-    /<h5 class="name mb-0 mt-0 text-theme-colored">([\s\S]*?)<\/h5>[\s\S]*?<p class="font-14 font-weight-500">([\s\S]*?)<\/p>/g;
-
+  const nameRegex = /<h5 class="name mb-0 mt-0 text-theme-colored">([\s\S]*?)<\/h5>/g;
   let m: RegExpExecArray | null;
-  while ((m = cardRegex.exec(html)) !== null) {
+  while ((m = nameRegex.exec(html)) !== null) {
     const name = m[1].replace(/\s+/g, " ").trim();
     if (!name) continue;
-
-    // The <p> block contains: Designation<br />Speciality
-    const pContent = m[2];
-    const parts = pContent.split(/<br\s*\/?>/i).map(p => p.replace(/\s+/g, " ").trim()).filter(Boolean);
-    // Last non-empty part is the speciality
-    const speciality = parts[parts.length - 1] || "General";
-
     doctors.push({
       name,
-      speciality,
+      speciality: specialtyName,
       opd: "Mon–Sat",
-      timing: "Contact hospital for OPD timings",
+      timing: "Contact LNH for OPD timings",
       hospital: HOSPITALS.lnh.name,
       hospitalPhone: HOSPITALS.lnh.phone,
       hospitalAddress: HOSPITALS.lnh.address,
@@ -203,17 +238,42 @@ async function fetchLNHDoctors(): Promise<Doctor[]> {
     });
   }
 
+  lnhSpecialtyCache.set(uuid, { doctors, fetchedAt: Date.now() });
   return doctors;
 }
 
+async function fetchLNHDoctors(): Promise<Doctor[]> {
+  // Fetch ALL specialty pages in parallel — each page is individually cached.
+  // First call takes ~3-5s; subsequent calls within 6h are instant from cache.
+  const results = await Promise.allSettled(
+    LNH_SPECIALTY_UUIDS.map(({ name, uuid }) => fetchLNHSpecialtyPage(uuid, name))
+  );
+
+  const allDoctors: Doctor[] = [];
+  const seen = new Set<string>();
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      for (const doc of result.value) {
+        if (!seen.has(doc.name)) {
+          seen.add(doc.name);
+          allDoctors.push(doc);
+        }
+      }
+    }
+  }
+
+  return allDoctors;
+}
+
 // ── AKUH scraper ───────────────────────────────────────────────────────────
+// AKUH is a SharePoint site that server-renders only 12 doctors per page load.
+// The remaining doctors require ASP.NET ViewState postback (not feasible to scrape).
+// We extract what's available from the initial page HTML.
 
 async function fetchAKUHDoctors(): Promise<Doctor[]> {
   const res = await fetch("https://hospitals.aku.edu/pakistan/patientservices/Pages/findadoctor.aspx", {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
+    headers: COMMON_HEADERS,
     signal: AbortSignal.timeout(20000),
   });
 
@@ -246,7 +306,6 @@ async function fetchAKUHDoctors(): Promise<Doctor[]> {
     });
   }
 
-  // If scraping produced no results (JS-heavy fallback), return sentinel
   if (doctors.length === 0) {
     return [{
       name: "Find Doctor via AKUH Directory",
@@ -618,42 +677,45 @@ export async function searchDoctorsInCity(
   message: string,
   city: string | null
 ): Promise<HospitalSearchResult[]> {
-  const results: HospitalSearchResult[] = [];
   const specialtyKeywords = extractSpecialtyKeywords(message);
 
-  // If a city is given, filter to that city; otherwise search all hospitals
   const relevantHospitals = city
     ? Object.keys(HOSPITALS).filter(key => HOSPITALS[key].city === city.toLowerCase())
     : Object.keys(HOSPITALS);
 
   if (relevantHospitals.length === 0) return [];
 
-  for (const key of relevantHospitals) {
-    const hosp = HOSPITALS[key];
-    try {
-      const allDoctors = await getDoctorsFromHospital(key);
-      const filtered = filterDoctorsBySpecialty(allDoctors, specialtyKeywords);
+  // Fetch all hospitals in parallel to minimise total latency
+  const fetchResults = await Promise.allSettled(
+    relevantHospitals.map(key => getDoctorsFromHospital(key))
+  );
 
-      results.push({
-        doctors: filtered.slice(0, 12),
-        source: hosp.name,
-        sourceUrl: hosp.url,
-        fetchedAt: new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }),
-        hospitalKey: key,
-      });
-    } catch (err) {
-      results.push({
+  return relevantHospitals.map((key, idx) => {
+    const hosp = HOSPITALS[key];
+    const result = fetchResults[idx];
+
+    if (result.status === "rejected") {
+      return {
         doctors: [],
         source: hosp.name,
         sourceUrl: hosp.url,
         fetchedAt: "",
-        error: `Could not fetch data: ${(err as Error).message}`,
+        error: `Could not fetch data: ${(result.reason as Error).message}`,
         hospitalKey: key,
-      });
+      };
     }
-  }
 
-  return results;
+    const allDoctors = result.value;
+    const filtered = filterDoctorsBySpecialty(allDoctors, specialtyKeywords);
+
+    return {
+      doctors: filtered.slice(0, 50),
+      source: hosp.name,
+      sourceUrl: hosp.url,
+      fetchedAt: new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }),
+      hospitalKey: key,
+    };
+  });
 }
 
 // ── Get hospital buttons from search results ──────────────────────────────
