@@ -8,16 +8,25 @@ const PREFERRED_MIME_TYPES = [
   "audio/ogg",
 ];
 
+function formatForType(type: string): string {
+  if (type.includes("webm")) return "webm";
+  if (type.includes("mp4")) return "mp4";
+  if (type.includes("aac")) return "m4a";
+  if (type.includes("mpeg")) return "mp3";
+  if (type.includes("ogg")) return "ogg";
+  if (type.includes("wav")) return "wav";
+  return "webm";
+}
+
 function pickMimeType(): { mimeType?: string; format: string } {
   if (typeof MediaRecorder === "undefined") return { format: "webm" };
   for (const m of PREFERRED_MIME_TYPES) {
-    if (MediaRecorder.isTypeSupported(m)) {
-      const format =
-        m.startsWith("audio/webm") ? "webm" :
-        m.startsWith("audio/mp4") ? "mp4" :
-        m.startsWith("audio/aac") ? "m4a" :
-        m.startsWith("audio/ogg") ? "ogg" : "webm";
-      return { mimeType: m, format };
+    try {
+      if (MediaRecorder.isTypeSupported(m)) {
+        return { mimeType: m, format: formatForType(m) };
+      }
+    } catch {
+      // some browsers throw on unsupported types
     }
   }
   return { format: "webm" };
@@ -45,24 +54,31 @@ export function useVoiceRecord({ onTranscript, onError }: UseVoiceRecordOptions)
 
     const blob: Blob = await new Promise((resolve) => {
       rec.onstop = () => {
-        const type = rec.mimeType || "audio/webm";
+        const type = rec.mimeType || chunksRef.current[0]?.type || "audio/webm";
         resolve(new Blob(chunksRef.current, { type }));
       };
+      try {
+        rec.requestData?.();
+      } catch {
+        // ignore — some browsers throw if not actively recording
+      }
       rec.stop();
     });
 
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
 
-    if (blob.size < 500) {
+    if (blob.size < 200) {
       setState("idle");
       onError?.({ kind: "no-speech", message: "Didn't hear anything. Try again." });
       return;
     }
 
+    const actualFormat = formatForType(blob.type) || formatRef.current;
+
     try {
       const buf = await blob.arrayBuffer();
-      const resp = await fetch(`/api/voice/transcribe?format=${formatRef.current}`, {
+      const resp = await fetch(`/api/voice/transcribe?format=${actualFormat}`, {
         method: "POST",
         headers: { "Content-Type": blob.type || "application/octet-stream" },
         body: buf,
@@ -104,13 +120,32 @@ export function useVoiceRecord({ onTranscript, onError }: UseVoiceRecordOptions)
 
     const { mimeType, format } = pickMimeType();
     formatRef.current = format;
-    const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+    let rec: MediaRecorder;
+    try {
+      rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    } catch {
+      try {
+        rec = new MediaRecorder(stream);
+      } catch (err) {
+        stream.getTracks().forEach((t) => t.stop());
+        onError?.({ kind: "unsupported", message: `Audio recording is not supported on this browser. ${(err as Error)?.message ?? ""}` });
+        return;
+      }
+    }
+
     recorderRef.current = rec;
     streamRef.current = stream;
     chunksRef.current = [];
 
-    rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    rec.start(100);
+    rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
+    try {
+      rec.start();
+    } catch (err) {
+      stream.getTracks().forEach((t) => t.stop());
+      onError?.({ kind: "unknown", message: `Could not start recording. ${(err as Error)?.message ?? ""}` });
+      return;
+    }
     setState("recording");
   }, [state, onError]);
 
