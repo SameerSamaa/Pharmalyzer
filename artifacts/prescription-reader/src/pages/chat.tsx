@@ -1,69 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, RotateCcw, Pill, Stethoscope, MapPin, Hospital } from "lucide-react";
+import { Send, Bot, User, Loader2, RotateCcw, Pill, Stethoscope, MapPin, Hospital, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-
-function SurLogo({ size = "sm" }: { size?: "sm" | "lg" }) {
-  const dimension = size === "lg" ? 72 : 40;
-  return (
-    <svg
-      width={dimension}
-      height={dimension}
-      viewBox="0 0 80 64"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="shrink-0"
-      aria-label="SUR"
-    >
-      {/* Left antenna */}
-      <line x1="28" y1="6" x2="28" y2="18" stroke="hsl(var(--primary))" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx="28" cy="5" r="3" fill="hsl(var(--primary))" />
-
-      {/* Right antenna */}
-      <line x1="52" y1="6" x2="52" y2="18" stroke="hsl(var(--primary))" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx="52" cy="5" r="3" fill="hsl(var(--primary))" />
-
-      {/* Pill-shaped head with chat-bubble tail */}
-      <path
-        d="M22 18 H58 A16 16 0 0 1 74 34 V40 A16 16 0 0 1 58 56 H30 L22 62 V56 A16 16 0 0 1 6 40 V34 A16 16 0 0 1 22 18 Z"
-        fill="hsl(var(--primary) / 0.08)"
-        stroke="hsl(var(--primary))"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-      />
-
-      {/* SUR text — replaces the eyes */}
-      <text
-        x="40"
-        y="43"
-        textAnchor="middle"
-        fill="hsl(var(--primary))"
-        fontSize="16"
-        fontWeight="900"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        letterSpacing="2"
-      >
-        SUR
-      </text>
-    </svg>
-  );
-}
-
-type Role = "user" | "assistant";
-
-interface HospitalButton {
-  key: string;
-  label: string;
-  fullName: string;
-}
-
-interface Message {
-  id: string;
-  role: Role;
-  content: string;
-  streaming?: boolean;
-  hospitalButtons?: HospitalButton[];
-}
+import { SurLogo } from "@/components/sur-logo";
+import { useSurChat } from "@/hooks/use-sur-chat";
+import type { Message, HospitalButton } from "@/hooks/use-sur-chat";
 
 const SUGGESTIONS = [
   { icon: Pill, label: "What is Calpol used for?" },
@@ -73,6 +14,16 @@ const SUGGESTIONS = [
   { icon: MapPin, label: "Best cardiologist in Karachi" },
   { icon: MapPin, label: "Good hospital for chest in Lahore" },
 ];
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/^[•\-]\s*/gm, "")
+    .replace(/^\d+\.\s*/gm, "")
+    .replace(/<[^>]*>/g, "")
+    .trim();
+}
 
 function formatMarkdown(text: string): string {
   let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
@@ -140,12 +91,9 @@ function MessageBubble({
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
-      <div
-        className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white mt-1 bg-primary`}
-      >
+      <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white mt-1 bg-primary">
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
       </div>
-
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
@@ -179,114 +127,86 @@ function MessageBubble({
 }
 
 export function Chat() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [micSupported, setMicSupported] = useState(true);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const synthRef = useRef(window.speechSynthesis);
+
+  const speak = useCallback((text: string) => {
+    if (!speakerOn) return;
+    synthRef.current.cancel();
+    const utterance = new SpeechSynthesisUtterance(stripMarkdown(text));
+    utterance.rate = 1.05;
+    window.speechSynthesis.speak(utterance);
+  }, [speakerOn]);
+
+  const { messages, input, setInput, isStreaming, sendMessage, clearChat, handleHospitalFilter } = useSurChat(
+    useCallback((text: string) => speak(text), [speak])
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || isStreaming) return;
+  useEffect(() => {
+    const SR = (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
+      || (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
+    if (!SR) { setMicSupported(false); return; }
 
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: trimmed,
-    };
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = "en-US";
 
-    const assistantId = crypto.randomUUID();
-    const assistantMsg: Message = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-      streaming: true,
-    };
+    rec.onstart = () => setIsListening(true);
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    setInput("");
-    setIsStreaming(true);
-
-    const history = messages.map((m) => ({ role: m.role, content: m.content }));
-    abortRef.current = new AbortController();
-
-    try {
-      const response = await fetch("/api/chat/message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, history }),
-        signal: abortRef.current.signal,
-      });
-
-      if (!response.ok || !response.body) throw new Error("Request failed");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let accumulated = "";
-      let buffer = "";
-      let pendingButtons: HospitalButton[] | undefined;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.done || data.error) break;
-            if (data.content) {
-              accumulated += data.content;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId ? { ...m, content: accumulated, streaming: true } : m
-                )
-              );
-            }
-            if (data.hospitalButtons) {
-              pendingButtons = data.hospitalButtons as HospitalButton[];
-            }
-          } catch {
-            // ignore parse errors on partial chunks
-          }
-        }
+    rec.onresult = (e) => {
+      let interim = "";
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t;
+        else interim += t;
       }
+      setInput(final || interim);
+    };
 
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, streaming: false, hospitalButtons: pendingButtons }
-            : m
-        )
-      );
-    } catch (err: unknown) {
-      if ((err as Error)?.name === "AbortError") return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: "Sorry, something went wrong. Please try again.", streaming: false }
-            : m
-        )
-      );
-    } finally {
-      setIsStreaming(false);
-      abortRef.current = null;
-      inputRef.current?.focus();
+    rec.onend = () => {
+      setIsListening(false);
+      setInput((val) => {
+        if (val.trim()) {
+          setTimeout(() => sendMessage(val), 50);
+        }
+        return val;
+      });
+    };
+
+    rec.onerror = () => setIsListening(false);
+    recognitionRef.current = rec;
+
+    return () => rec.abort();
+  }, [sendMessage, setInput]);
+
+  const toggleMic = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+    } else {
+      synthRef.current.cancel();
+      setInput("");
+      recognitionRef.current?.start();
     }
-  }, [isStreaming, messages]);
+  };
 
-  const handleHospitalFilter = useCallback((fullName: string) => {
-    sendMessage(`Show me only doctors from ${fullName}`);
-  }, [sendMessage]);
+  const toggleSpeaker = () => {
+    setSpeakerOn((s) => {
+      if (s) synthRef.current.cancel();
+      return !s;
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -300,9 +220,10 @@ export function Chat() {
     }
   };
 
-  const clearChat = () => {
-    if (isStreaming) { abortRef.current?.abort(); setIsStreaming(false); }
-    setMessages([]);
+  const handleClear = () => {
+    if (isStreaming) clearChat();
+    else clearChat();
+    inputRef.current?.focus();
   };
 
   const isEmpty = messages.length === 0;
@@ -320,12 +241,23 @@ export function Chat() {
             Ask about medicines, symptoms, or find doctors and hospitals near you
           </p>
         </div>
-        {!isEmpty && (
-          <Button variant="ghost" size="sm" onClick={clearChat} className="gap-2 text-muted-foreground">
-            <RotateCcw className="w-4 h-4" />
-            <span className="hidden sm:inline">New Chat</span>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSpeaker}
+            title={speakerOn ? "Mute responses" : "Speak responses aloud"}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            {speakerOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </Button>
-        )}
+          {!isEmpty && (
+            <Button variant="ghost" size="sm" onClick={handleClear} className="gap-2 text-muted-foreground">
+              <RotateCcw className="w-4 h-4" />
+              <span className="hidden sm:inline">New Chat</span>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Message area */}
@@ -333,7 +265,9 @@ export function Chat() {
         {isEmpty ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-4 space-y-8">
             <div className="space-y-3">
-              <SurLogo size="lg" />
+              <div className="flex justify-center">
+                <SurLogo size="lg" />
+              </div>
               <h2 className="text-xl font-semibold">Hi, I'm SUR</h2>
               <p className="text-sm text-muted-foreground max-w-sm">
                 Ask me about any medicine, describe your symptoms for doctor guidance, or find real doctors and hospitals in your city.
@@ -386,23 +320,48 @@ export function Chat() {
 
       {/* Input */}
       <div className="shrink-0 pt-3">
-        <Card className="shadow-sm border-border/60">
+        <Card className={`shadow-sm transition-colors ${isListening ? "border-primary ring-1 ring-primary/30" : "border-border/60"}`}>
           <CardContent className="p-2">
+            {isListening && (
+              <div className="flex items-center gap-2 px-2 py-1 mb-1">
+                <span className="flex gap-0.5 items-end h-4">
+                  <span className="w-0.5 bg-primary rounded-full animate-bounce h-2" style={{ animationDelay: "0ms" }} />
+                  <span className="w-0.5 bg-primary rounded-full animate-bounce h-3" style={{ animationDelay: "100ms" }} />
+                  <span className="w-0.5 bg-primary rounded-full animate-bounce h-4" style={{ animationDelay: "200ms" }} />
+                  <span className="w-0.5 bg-primary rounded-full animate-bounce h-3" style={{ animationDelay: "100ms" }} />
+                  <span className="w-0.5 bg-primary rounded-full animate-bounce h-2" style={{ animationDelay: "0ms" }} />
+                </span>
+                <span className="text-xs text-primary font-medium">Listening...</span>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="flex items-end gap-2">
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about a medicine, your symptoms, or find a doctor in your city..."
+                placeholder={isListening ? "Listening..." : "Ask about a medicine, your symptoms, or find a doctor..."}
                 className="flex-1 resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none min-h-[40px] max-h-32 py-2 px-2 leading-relaxed"
                 rows={1}
-                disabled={isStreaming}
+                disabled={isStreaming || isListening}
               />
+              {micSupported && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={isListening ? "default" : "ghost"}
+                  onClick={toggleMic}
+                  disabled={isStreaming}
+                  title={isListening ? "Stop listening" : "Speak your question"}
+                  className={`shrink-0 rounded-xl h-9 w-9 ${isListening ? "bg-red-500 hover:bg-red-600 text-white" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </Button>
+              )}
               <Button
                 type="submit"
                 size="icon"
-                disabled={!input.trim() || isStreaming}
+                disabled={!input.trim() || isStreaming || isListening}
                 className="shrink-0 rounded-xl h-9 w-9"
               >
                 {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

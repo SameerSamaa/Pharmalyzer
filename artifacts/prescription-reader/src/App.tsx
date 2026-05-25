@@ -8,6 +8,7 @@ import { Home } from "@/pages/home";
 import { History } from "@/pages/history";
 import { PrescriptionDetail } from "@/pages/prescription-detail";
 import { Chat } from "@/pages/chat";
+import { Voice } from "@/pages/voice";
 import { Login } from "@/pages/login";
 import { Signup } from "@/pages/signup";
 import { AuthProvider, useAuth } from "@/context/auth";
@@ -61,6 +62,13 @@ function Router() {
         {() => (
           <Layout>
             <ProtectedRoute component={Chat} />
+          </Layout>
+        )}
+      </Route>
+      <Route path="/voice">
+        {() => (
+          <Layout>
+            <ProtectedRoute component={Voice} />
           </Layout>
         )}
       </Route>

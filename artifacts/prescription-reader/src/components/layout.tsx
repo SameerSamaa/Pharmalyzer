@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { History, ScanLine, MessageCircle, LogOut, User } from "lucide-react";
+import { History, ScanLine, MessageCircle, LogOut, User, Mic } from "lucide-react";
 import { useAuth } from "@/context/auth";
 import { Button } from "@/components/ui/button";
 import { PharmalyzerLogo } from "@/components/pharmalyzer-logo";
@@ -46,6 +46,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <MessageCircle className="w-4 h-4" />
               <span className="hidden sm:inline">Ask SUR</span>
+            </Link>
+            <Link
+              href="/voice"
+              className={`flex items-center gap-2 text-sm font-medium transition-colors hover:text-primary ${location.startsWith("/voice") ? "text-primary" : "text-muted-foreground"}`}
+            >
+              <Mic className="w-4 h-4" />
+              <span className="hidden sm:inline">Voice</span>
             </Link>
 
             {/* User dropdown */}
