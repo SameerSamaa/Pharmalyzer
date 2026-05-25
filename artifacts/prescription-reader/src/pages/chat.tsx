@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SurLogo } from "@/components/sur-logo";
 import { useSurChat } from "@/hooks/use-sur-chat";
 import type { Message, HospitalButton } from "@/hooks/use-sur-chat";
+import { useToast } from "@/hooks/use-toast";
 
 const SUGGESTIONS = [
   { icon: Pill, label: "What is Calpol used for?" },
@@ -130,11 +131,13 @@ export function Chat() {
   const [speakerOn, setSpeakerOn] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [micSupported, setMicSupported] = useState(true);
+  const [permissionGranted, setPermissionGranted] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef(window.speechSynthesis);
+  const { toast } = useToast();
 
   const speak = useCallback((text: string) => {
     if (!speakerOn) return;
@@ -185,19 +188,66 @@ export function Chat() {
       });
     };
 
-    rec.onerror = () => setIsListening(false);
+    rec.onerror = (e: SpeechRecognitionErrorEvent) => {
+      setIsListening(false);
+      const err = e.error;
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        toast({
+          title: "Microphone blocked",
+          description: "Allow microphone access in your browser. If you're inside the Replit preview, click 'Open in new tab' first.",
+          variant: "destructive",
+        });
+        setPermissionGranted(false);
+      } else if (err === "no-speech") {
+        toast({ title: "No speech detected", description: "Try speaking a little louder, then tap the mic again." });
+      } else if (err === "audio-capture") {
+        toast({ title: "No microphone found", description: "Connect a microphone and try again.", variant: "destructive" });
+      } else if (err !== "aborted") {
+        toast({ title: "Voice error", description: `Speech recognition failed (${err}). Try again.`, variant: "destructive" });
+      }
+    };
     recognitionRef.current = rec;
 
     return () => rec.abort();
-  }, [sendMessage, setInput]);
+  }, [sendMessage, setInput, toast]);
 
-  const toggleMic = () => {
+  const ensureMicPermission = useCallback(async () => {
+    if (permissionGranted) return true;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast({ title: "Microphone unavailable", description: "Your browser does not support microphone access.", variant: "destructive" });
+      return false;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setPermissionGranted(true);
+      return true;
+    } catch (err) {
+      const name = (err as Error)?.name;
+      toast({
+        title: name === "NotAllowedError" ? "Microphone blocked" : "Cannot access microphone",
+        description: name === "NotAllowedError"
+          ? "Click the lock icon in your address bar and allow microphone access. In the Replit preview, open the app in a new tab first."
+          : "Make sure a microphone is connected and try again.",
+        variant: "destructive",
+      });
+      return false;
+    }
+  }, [permissionGranted, toast]);
+
+  const toggleMic = async () => {
     if (isListening) {
       recognitionRef.current?.stop();
-    } else {
-      synthRef.current.cancel();
-      setInput("");
+      return;
+    }
+    const ok = await ensureMicPermission();
+    if (!ok) return;
+    synthRef.current.cancel();
+    setInput("");
+    try {
       recognitionRef.current?.start();
+    } catch (err) {
+      toast({ title: "Mic busy", description: "Wait a moment and try again.", variant: "destructive" });
     }
   };
 
