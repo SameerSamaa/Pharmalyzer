@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { UploadCloud, FileImage, Loader2, AlertCircle, ScanLine, Wand2 } from "lucide-react";
 import { useAnalyzePrescription, getListPrescriptionsQueryKey, getGetPrescriptionSummaryQueryKey } from "@workspace/api-client-react";
@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { usePendingUpload } from "@/context/pending-upload";
 
 interface PreprocessResult {
   base64: string;
@@ -146,6 +147,7 @@ export function Home() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const analyzeMutation = useAnalyzePrescription();
+  const { pendingFile, setPendingFile } = usePendingUpload();
 
   const handleFileChange = useCallback((selectedFile: File) => {
     if (!selectedFile.type.startsWith("image/")) {
@@ -161,6 +163,13 @@ export function Home() {
     const objectUrl = URL.createObjectURL(selectedFile);
     setPreviewUrl(objectUrl);
   }, [toast]);
+
+  useEffect(() => {
+    if (pendingFile) {
+      handleFileChange(pendingFile);
+      setPendingFile(null);
+    }
+  }, [pendingFile, handleFileChange, setPendingFile]);
 
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -229,12 +238,12 @@ export function Home() {
     : "Extracting clinical data with AI";
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
-      <div className="text-center space-y-4">
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground">
+    <div className="max-w-3xl mx-auto space-y-6 sm:space-y-8">
+      <div className="text-center space-y-3">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-foreground">
           Intelligent Prescription Analysis
         </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+        <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
           Upload a handwritten doctor's prescription. Our AI reads it — even blurry, angled, or poorly-lit photos — and extracts every medication with clinical detail.
         </p>
       </div>
@@ -243,7 +252,7 @@ export function Home() {
         <CardContent className="p-0">
           {!previewUrl ? (
             <div
-              className="flex flex-col items-center justify-center py-32 px-4 cursor-pointer hover:bg-muted/50 transition-colors"
+              className="flex flex-col items-center justify-center py-16 sm:py-28 px-4 cursor-pointer hover:bg-muted/50 transition-colors"
               onDrop={onDrop}
               onDragOver={onDragOver}
               onClick={() => document.getElementById("file-upload")?.click()}
@@ -320,15 +329,15 @@ export function Home() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3 text-center">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center pb-20 sm:pb-0">
         {[
           { label: "Blurry photos", sub: "AI infers from context" },
           { label: "Bad lighting", sub: "Auto contrast boost" },
           { label: "Abbreviations", sub: "OD, BD, TDS decoded" },
         ].map(({ label, sub }) => (
-          <div key={label} className="bg-muted/40 rounded-xl p-4">
-            <p className="text-sm font-semibold text-foreground">{label}</p>
-            <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+          <div key={label} className="bg-muted/40 rounded-xl p-3 sm:p-4">
+            <p className="text-xs sm:text-sm font-semibold text-foreground">{label}</p>
+            <p className="text-xs text-muted-foreground mt-1 hidden sm:block">{sub}</p>
           </div>
         ))}
       </div>

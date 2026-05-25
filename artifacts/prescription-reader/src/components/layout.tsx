@@ -3,6 +3,7 @@ import { History, ScanLine, MessageCircle, LogOut, User } from "lucide-react";
 import { useAuth } from "@/context/auth";
 import { Button } from "@/components/ui/button";
 import { PharmalyzerLogo } from "@/components/pharmalyzer-logo";
+import { FloatingActionButton } from "@/components/floating-action-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +18,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
+      <FloatingActionButton />
       <header className="sticky top-0 z-50 w-full border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 text-primary">

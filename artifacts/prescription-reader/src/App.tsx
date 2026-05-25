@@ -11,6 +11,7 @@ import { Chat } from "@/pages/chat";
 import { Login } from "@/pages/login";
 import { Signup } from "@/pages/signup";
 import { AuthProvider, useAuth } from "@/context/auth";
+import { PendingUploadProvider } from "@/context/pending-upload";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -73,9 +74,11 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
+          <PendingUploadProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <Router />
+            </WouterRouter>
+          </PendingUploadProvider>
         </AuthProvider>
         <Toaster />
       </TooltipProvider>
