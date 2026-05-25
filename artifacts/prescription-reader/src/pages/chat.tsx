@@ -4,26 +4,58 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 function SurLogo({ size = "sm" }: { size?: "sm" | "lg" }) {
-  const isLg = size === "lg";
+  const dimension = size === "lg" ? 64 : 36;
   return (
-    <div
-      className={`relative flex flex-col items-center justify-center bg-primary rounded-2xl shadow-sm select-none ${
-        isLg ? "w-16 h-16 rounded-2xl" : "w-9 h-9 rounded-xl"
-      }`}
+    <svg
+      width={dimension}
+      height={dimension}
+      viewBox="0 0 64 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="shrink-0 drop-shadow-sm"
+      aria-label="SUR"
     >
+      <defs>
+        <linearGradient id="surGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="1" />
+          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.85" />
+        </linearGradient>
+      </defs>
+
       {/* Antenna */}
-      <div className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-primary rounded-full ${isLg ? "w-2 h-2" : "w-1.5 h-1.5"}`} />
-      <div className={`absolute bg-white/80 rounded-full ${isLg ? "top-1 w-1.5 h-1.5 left-1/2 -translate-x-1/2" : "top-0.5 w-1 h-1 left-1/2 -translate-x-1/2"}`} />
-      {/* SUR text — main focal point */}
-      <span className={`font-black text-white tracking-widest leading-none ${isLg ? "text-lg" : "text-[11px]"}`}>
+      <line x1="32" y1="3" x2="32" y2="11" stroke="hsl(var(--primary))" strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="32" cy="3.5" r="2.5" fill="hsl(var(--primary))" />
+
+      {/* Head */}
+      <rect x="6" y="11" width="52" height="46" rx="13" fill="url(#surGrad)" />
+
+      {/* Inner face panel for SUR name plate */}
+      <rect x="13" y="34" width="38" height="15" rx="4" fill="hsl(var(--primary-foreground))" fillOpacity="0.15" />
+
+      {/* Eyes */}
+      <circle cx="23" cy="24" r="3.5" fill="white" />
+      <circle cx="41" cy="24" r="3.5" fill="white" />
+      <circle cx="23" cy="24" r="1.4" fill="hsl(var(--primary))" />
+      <circle cx="41" cy="24" r="1.4" fill="hsl(var(--primary))" />
+
+      {/* SUR name plate text */}
+      <text
+        x="32"
+        y="45.5"
+        textAnchor="middle"
+        fill="white"
+        fontSize="11"
+        fontWeight="900"
+        fontFamily="system-ui, -apple-system, sans-serif"
+        letterSpacing="1.5"
+      >
         SUR
-      </span>
-      {/* Robot eyes */}
-      <div className={`flex items-center justify-center ${isLg ? "gap-2 mt-1.5" : "gap-1 mt-1"}`}>
-        <div className={`bg-white/80 rounded-full ${isLg ? "w-2 h-2" : "w-1 h-1"}`} />
-        <div className={`bg-white/80 rounded-full ${isLg ? "w-2 h-2" : "w-1 h-1"}`} />
-      </div>
-    </div>
+      </text>
+
+      {/* Side ears */}
+      <rect x="3" y="26" width="4" height="14" rx="2" fill="hsl(var(--primary))" />
+      <rect x="57" y="26" width="4" height="14" rx="2" fill="hsl(var(--primary))" />
+    </svg>
   );
 }
 
