@@ -24,16 +24,31 @@ export function Voice() {
   const synthRef = useRef(window.speechSynthesis);
   const { toast } = useToast();
 
+  const speakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speak = useCallback((text: string) => {
-    if (!speakerOn) return;
+    if (speakTimerRef.current) {
+      clearTimeout(speakTimerRef.current);
+      speakTimerRef.current = null;
+    }
+    if (!speakerOn) {
+      setStatus("idle");
+      return;
+    }
     synthRef.current.cancel();
-    const utterance = new SpeechSynthesisUtterance(stripMarkdown(text));
+    const clean = stripMarkdown(text);
+    const utterance = new SpeechSynthesisUtterance(clean);
     utterance.rate = 1.05;
     utterance.pitch = 1.0;
     utterance.onstart = () => setStatus("speaking");
     utterance.onend = () => setStatus("idle");
     utterance.onerror = () => setStatus("idle");
     synthRef.current.speak(utterance);
+    // iOS Safari often never fires onend — fall back to a time estimate
+    // based on text length (~12 chars/sec) plus a generous buffer.
+    const estimateMs = Math.min(60000, Math.max(2500, (clean.length / 12) * 1000 + 1500));
+    speakTimerRef.current = setTimeout(() => {
+      setStatus("idle");
+    }, estimateMs);
   }, [speakerOn]);
 
   const { messages, isStreaming, sendMessage, clearChat } = useSurChat(
@@ -205,17 +220,16 @@ export function Voice() {
       <div className="flex flex-col items-center gap-2 pt-4 pb-2 shrink-0">
         <button
           onClick={handleMicClick}
-          disabled={isBusy && !isActive}
           aria-label={isActive ? "Stop listening" : "Start speaking"}
-          className={`relative w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/40 ${
+          className={`relative w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/40 touch-manipulation ${
             isActive
               ? "bg-red-500 hover:bg-red-600 scale-110"
-              : isBusy
-              ? "bg-primary/40 cursor-not-allowed"
+              : voice.state === "transcribing"
+              ? "bg-primary/60"
               : "bg-primary hover:bg-primary/90 hover:scale-105 active:scale-95"
           }`}
         >
-          {isBusy && !isActive ? (
+          {voice.state === "transcribing" ? (
             <Loader2 className="w-7 h-7 text-white animate-spin" />
           ) : isActive ? (
             <MicOff className="w-7 h-7 text-white" />
@@ -224,7 +238,7 @@ export function Voice() {
           )}
         </button>
         <p className="text-[11px] text-muted-foreground">
-          {isActive ? "Tap to stop" : isBusy ? "Please wait..." : "Tap to speak"}
+          {isActive ? "Tap to stop" : voice.state === "transcribing" ? "Transcribing..." : isBusy ? "Tap to interrupt" : "Tap to speak"}
         </p>
       </div>
     </div>

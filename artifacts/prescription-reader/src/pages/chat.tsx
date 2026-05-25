@@ -270,7 +270,7 @@ export function Chat() {
                 size="icon"
                 variant={isListening ? "default" : "ghost"}
                 onClick={toggleMic}
-                disabled={isStreaming || isTranscribing}
+                disabled={isTranscribing}
                 title={isListening ? "Stop listening" : isTranscribing ? "Transcribing..." : "Speak your question"}
                 className={`shrink-0 rounded-xl h-9 w-9 ${isListening ? "bg-red-500 hover:bg-red-600 text-white" : "text-muted-foreground hover:text-foreground"}`}
               >
