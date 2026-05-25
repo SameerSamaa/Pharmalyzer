@@ -4,57 +4,47 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 function SurLogo({ size = "sm" }: { size?: "sm" | "lg" }) {
-  const dimension = size === "lg" ? 64 : 36;
+  const dimension = size === "lg" ? 72 : 40;
   return (
     <svg
       width={dimension}
       height={dimension}
-      viewBox="0 0 64 64"
+      viewBox="0 0 80 64"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className="shrink-0 drop-shadow-sm"
+      className="shrink-0"
       aria-label="SUR"
     >
-      <defs>
-        <linearGradient id="surGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="1" />
-          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.85" />
-        </linearGradient>
-      </defs>
+      {/* Left antenna */}
+      <line x1="28" y1="6" x2="28" y2="18" stroke="hsl(var(--primary))" strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="28" cy="5" r="3" fill="hsl(var(--primary))" />
 
-      {/* Antenna */}
-      <line x1="32" y1="3" x2="32" y2="11" stroke="hsl(var(--primary))" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx="32" cy="3.5" r="2.5" fill="hsl(var(--primary))" />
+      {/* Right antenna */}
+      <line x1="52" y1="6" x2="52" y2="18" stroke="hsl(var(--primary))" strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="52" cy="5" r="3" fill="hsl(var(--primary))" />
 
-      {/* Head */}
-      <rect x="6" y="11" width="52" height="46" rx="13" fill="url(#surGrad)" />
+      {/* Pill-shaped head with chat-bubble tail */}
+      <path
+        d="M22 18 H58 A16 16 0 0 1 74 34 V40 A16 16 0 0 1 58 56 H30 L22 62 V56 A16 16 0 0 1 6 40 V34 A16 16 0 0 1 22 18 Z"
+        fill="hsl(var(--primary) / 0.08)"
+        stroke="hsl(var(--primary))"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+      />
 
-      {/* Inner face panel for SUR name plate */}
-      <rect x="13" y="34" width="38" height="15" rx="4" fill="hsl(var(--primary-foreground))" fillOpacity="0.15" />
-
-      {/* Eyes */}
-      <circle cx="23" cy="24" r="3.5" fill="white" />
-      <circle cx="41" cy="24" r="3.5" fill="white" />
-      <circle cx="23" cy="24" r="1.4" fill="hsl(var(--primary))" />
-      <circle cx="41" cy="24" r="1.4" fill="hsl(var(--primary))" />
-
-      {/* SUR name plate text */}
+      {/* SUR text — replaces the eyes */}
       <text
-        x="32"
-        y="45.5"
+        x="40"
+        y="43"
         textAnchor="middle"
-        fill="white"
-        fontSize="11"
+        fill="hsl(var(--primary))"
+        fontSize="16"
         fontWeight="900"
         fontFamily="system-ui, -apple-system, sans-serif"
-        letterSpacing="1.5"
+        letterSpacing="2"
       >
         SUR
       </text>
-
-      {/* Side ears */}
-      <rect x="3" y="26" width="4" height="14" rx="2" fill="hsl(var(--primary))" />
-      <rect x="57" y="26" width="4" height="14" rx="2" fill="hsl(var(--primary))" />
     </svg>
   );
 }
