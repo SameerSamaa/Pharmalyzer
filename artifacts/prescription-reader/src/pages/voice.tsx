@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { SurLogo } from "@/components/sur-logo";
 import { useSurChat } from "@/hooks/use-sur-chat";
 import { useToast } from "@/hooks/use-toast";
+import { useVoiceRecord } from "@/hooks/use-voice-record";
 
 function stripMarkdown(text: string): string {
   return text
@@ -28,10 +29,7 @@ export function Voice() {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [speakerOn, setSpeakerOn] = useState(true);
   const [transcript, setTranscript] = useState("");
-  const [supported, setSupported] = useState(true);
-  const [permissionGranted, setPermissionGranted] = useState(false);
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef(window.speechSynthesis);
   const { toast } = useToast();
 
@@ -54,118 +52,49 @@ export function Voice() {
     }, [speak])
   );
 
-  useEffect(() => {
-    const SR = (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
-      || (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
-    if (!SR) { setSupported(false); return; }
-
-    const rec = new SR();
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.lang = "en-US";
-
-    rec.onstart = () => { setStatus("listening"); setTranscript(""); };
-
-    rec.onresult = (e) => {
-      let interim = "";
-      let final = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) final += t;
-        else interim += t;
-      }
-      setTranscript(final || interim);
-    };
-
-    rec.onend = () => {
-      setTranscript((t) => {
-        if (t.trim()) {
-          setStatus("thinking");
-          sendMessage(t.trim());
-        } else {
-          setStatus("idle");
-        }
-        return "";
-      });
-    };
-
-    rec.onerror = (e: SpeechRecognitionErrorEvent) => {
-      setStatus("idle");
+  const voice = useVoiceRecord({
+    onTranscript: useCallback((text: string) => {
+      setTranscript(text);
+      setStatus("thinking");
+      sendMessage(text);
+    }, [sendMessage]),
+    onError: useCallback((err: { kind: string; message: string }) => {
       setTranscript("");
-      const err = e.error;
-      if (err === "not-allowed" || err === "service-not-allowed") {
-        toast({
-          title: "Microphone blocked",
-          description: "Allow microphone access. If you're in the Replit preview, click 'Open in new tab' first.",
-          variant: "destructive",
-        });
-        setPermissionGranted(false);
-      } else if (err === "no-speech") {
-        toast({ title: "No speech detected", description: "Try speaking again." });
-      } else if (err === "audio-capture") {
-        toast({ title: "No microphone found", description: "Connect a microphone and try again.", variant: "destructive" });
-      } else if (err !== "aborted") {
-        toast({ title: "Voice error", description: `Speech recognition failed (${err}).`, variant: "destructive" });
+      setStatus("idle");
+      if (err.kind === "permission") {
+        toast({ title: "Microphone blocked", description: err.message, variant: "destructive" });
+      } else if (err.kind === "no-speech") {
+        toast({ title: "No speech detected", description: err.message });
+      } else if (err.kind === "transcribe") {
+        toast({ title: "Voice error", description: err.message, variant: "destructive" });
+      } else {
+        toast({ title: "Microphone error", description: err.message, variant: "destructive" });
       }
-    };
-    recognitionRef.current = rec;
+    }, [toast]),
+  });
 
-    return () => { rec.abort(); };
-  }, [sendMessage, toast]);
-
-  const ensureMicPermission = useCallback(async () => {
-    if (permissionGranted) return true;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast({ title: "Microphone unavailable", description: "Your browser does not support microphone access.", variant: "destructive" });
-      return false;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-      setPermissionGranted(true);
-      return true;
-    } catch (err) {
-      const name = (err as Error)?.name;
-      toast({
-        title: name === "NotAllowedError" ? "Microphone blocked" : "Cannot access microphone",
-        description: name === "NotAllowedError"
-          ? "Click the lock icon in your address bar and allow microphone access. In the Replit preview, open the app in a new tab first."
-          : "Make sure a microphone is connected and try again.",
-        variant: "destructive",
-      });
-      return false;
-    }
-  }, [permissionGranted, toast]);
+  useEffect(() => {
+    if (voice.state === "recording") setStatus("listening");
+    else if (voice.state === "transcribing") setStatus("thinking");
+  }, [voice.state]);
 
   useEffect(() => {
     if (isStreaming) setStatus("thinking");
   }, [isStreaming]);
 
-  const startListening = async () => {
-    if (status !== "idle") return;
-    const ok = await ensureMicPermission();
-    if (!ok) return;
-    synthRef.current.cancel();
-    try {
-      recognitionRef.current?.start();
-    } catch {
-      toast({ title: "Mic busy", description: "Wait a moment and try again.", variant: "destructive" });
+  const handleMicClick = async () => {
+    if (status === "listening" || voice.state === "recording") {
+      await voice.stop();
+    } else if (status === "idle") {
+      synthRef.current.cancel();
+      setTranscript("");
+      await voice.start();
     }
-  };
-
-  const stopListening = () => {
-    recognitionRef.current?.stop();
-    setStatus("idle");
-  };
-
-  const handleMicClick = () => {
-    if (status === "listening") stopListening();
-    else if (status === "idle") startListening();
   };
 
   const handleClear = () => {
     synthRef.current.cancel();
-    recognitionRef.current?.abort();
+    voice.cancel();
     setStatus("idle");
     setTranscript("");
     clearChat();
@@ -184,18 +113,6 @@ export function Voice() {
 
   const isActive = status === "listening";
   const isBusy = status === "thinking" || status === "speaking";
-
-  if (!supported) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6 gap-4">
-        <SurLogo size="xl" />
-        <h2 className="text-xl font-semibold">Voice not supported</h2>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          Your browser doesn't support the Web Speech API. Try Chrome or Edge for voice mode.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col items-center gap-6 py-4" style={{ minHeight: "calc(100dvh - 9rem)" }}>

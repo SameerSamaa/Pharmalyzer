@@ -6,6 +6,7 @@ import { SurLogo } from "@/components/sur-logo";
 import { useSurChat } from "@/hooks/use-sur-chat";
 import type { Message, HospitalButton } from "@/hooks/use-sur-chat";
 import { useToast } from "@/hooks/use-toast";
+import { useVoiceRecord } from "@/hooks/use-voice-record";
 
 const SUGGESTIONS = [
   { icon: Pill, label: "What is Calpol used for?" },
@@ -129,13 +130,9 @@ function MessageBubble({
 
 export function Chat() {
   const [speakerOn, setSpeakerOn] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [micSupported, setMicSupported] = useState(true);
-  const [permissionGranted, setPermissionGranted] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef(window.speechSynthesis);
   const { toast } = useToast();
 
@@ -155,99 +152,36 @@ export function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    const SR = (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
-      || (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
-    if (!SR) { setMicSupported(false); return; }
-
-    const rec = new SR();
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.lang = "en-US";
-
-    rec.onstart = () => setIsListening(true);
-
-    rec.onresult = (e) => {
-      let interim = "";
-      let final = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) final += t;
-        else interim += t;
+  const voice = useVoiceRecord({
+    onTranscript: useCallback((text: string) => {
+      setInput(text);
+      setTimeout(() => sendMessage(text), 50);
+    }, [setInput, sendMessage]),
+    onError: useCallback((err: { kind: string; message: string }) => {
+      if (err.kind === "permission") {
+        toast({ title: "Microphone blocked", description: err.message, variant: "destructive" });
+      } else if (err.kind === "no-speech") {
+        toast({ title: "No speech detected", description: err.message });
+      } else if (err.kind === "transcribe") {
+        toast({ title: "Voice error", description: err.message, variant: "destructive" });
+      } else if (err.kind === "unsupported") {
+        toast({ title: "Voice unavailable", description: err.message, variant: "destructive" });
+      } else {
+        toast({ title: "Microphone error", description: err.message, variant: "destructive" });
       }
-      setInput(final || interim);
-    };
+    }, [toast]),
+  });
 
-    rec.onend = () => {
-      setIsListening(false);
-      setInput((val) => {
-        if (val.trim()) {
-          setTimeout(() => sendMessage(val), 50);
-        }
-        return val;
-      });
-    };
-
-    rec.onerror = (e: SpeechRecognitionErrorEvent) => {
-      setIsListening(false);
-      const err = e.error;
-      if (err === "not-allowed" || err === "service-not-allowed") {
-        toast({
-          title: "Microphone blocked",
-          description: "Allow microphone access in your browser. If you're inside the Replit preview, click 'Open in new tab' first.",
-          variant: "destructive",
-        });
-        setPermissionGranted(false);
-      } else if (err === "no-speech") {
-        toast({ title: "No speech detected", description: "Try speaking a little louder, then tap the mic again." });
-      } else if (err === "audio-capture") {
-        toast({ title: "No microphone found", description: "Connect a microphone and try again.", variant: "destructive" });
-      } else if (err !== "aborted") {
-        toast({ title: "Voice error", description: `Speech recognition failed (${err}). Try again.`, variant: "destructive" });
-      }
-    };
-    recognitionRef.current = rec;
-
-    return () => rec.abort();
-  }, [sendMessage, setInput, toast]);
-
-  const ensureMicPermission = useCallback(async () => {
-    if (permissionGranted) return true;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast({ title: "Microphone unavailable", description: "Your browser does not support microphone access.", variant: "destructive" });
-      return false;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-      setPermissionGranted(true);
-      return true;
-    } catch (err) {
-      const name = (err as Error)?.name;
-      toast({
-        title: name === "NotAllowedError" ? "Microphone blocked" : "Cannot access microphone",
-        description: name === "NotAllowedError"
-          ? "Click the lock icon in your address bar and allow microphone access. In the Replit preview, open the app in a new tab first."
-          : "Make sure a microphone is connected and try again.",
-        variant: "destructive",
-      });
-      return false;
-    }
-  }, [permissionGranted, toast]);
+  const isListening = voice.state === "recording";
+  const isTranscribing = voice.state === "transcribing";
 
   const toggleMic = async () => {
     if (isListening) {
-      recognitionRef.current?.stop();
-      return;
-    }
-    const ok = await ensureMicPermission();
-    if (!ok) return;
-    synthRef.current.cancel();
-    setInput("");
-    try {
-      recognitionRef.current?.start();
-    } catch (err) {
-      toast({ title: "Mic busy", description: "Wait a moment and try again.", variant: "destructive" });
+      await voice.stop();
+    } else if (voice.state === "idle") {
+      synthRef.current.cancel();
+      setInput("");
+      await voice.start();
     }
   };
 
@@ -395,19 +329,17 @@ export function Chat() {
                 rows={1}
                 disabled={isStreaming || isListening}
               />
-              {micSupported && (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant={isListening ? "default" : "ghost"}
-                  onClick={toggleMic}
-                  disabled={isStreaming}
-                  title={isListening ? "Stop listening" : "Speak your question"}
-                  className={`shrink-0 rounded-xl h-9 w-9 ${isListening ? "bg-red-500 hover:bg-red-600 text-white" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </Button>
-              )}
+              <Button
+                type="button"
+                size="icon"
+                variant={isListening ? "default" : "ghost"}
+                onClick={toggleMic}
+                disabled={isStreaming || isTranscribing}
+                title={isListening ? "Stop listening" : isTranscribing ? "Transcribing..." : "Speak your question"}
+                className={`shrink-0 rounded-xl h-9 w-9 ${isListening ? "bg-red-500 hover:bg-red-600 text-white" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {isTranscribing ? <Loader2 className="w-4 h-4 animate-spin" /> : isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </Button>
               <Button
                 type="submit"
                 size="icon"
