@@ -267,17 +267,92 @@ async function fetchLNHDoctors(): Promise<Doctor[]> {
 }
 
 // ── AKUH scraper ───────────────────────────────────────────────────────────
-// AKUH is a SharePoint site that server-renders only 12 doctors per page load.
-// The remaining doctors require ASP.NET ViewState postback (not feasible to scrape).
-// We extract what's available from the initial page HTML.
+// AKUH supports ?Spec={specialty} GET filtering. We fetch all 61 specialties
+// in parallel to build the complete doctor directory. Each page is individually
+// cached for 6 hours so repeated queries are instant.
 
-async function fetchAKUHDoctors(): Promise<Doctor[]> {
-  const res = await fetch("https://hospitals.aku.edu/pakistan/patientservices/Pages/findadoctor.aspx", {
+const AKUH_SPECIALTIES: string[] = [
+  "Anticoagulation",
+  "Breast Surgery",
+  "Cardiology",
+  "Cardiothoracic Surgery",
+  "Chemical Pathology",
+  "Clinical Haematology",
+  "Clinical Psychology",
+  "Dentistry",
+  "Dermatology",
+  "Emergency Medicine",
+  "Endocrinology",
+  "ENT (Otolaryngology)",
+  "Family Medicine",
+  "Gastroenterology",
+  "General Anaesthesia",
+  "General Paediatrics",
+  "General Surgery",
+  "Haematology",
+  "Haematology and Transfusion Medicine",
+  "Histopathology",
+  "Infectious Diseases",
+  "Internal Medicine",
+  "Medical Oncology",
+  "Microbiology",
+  "Molecular Pathology",
+  "Nephrology",
+  "Neuro Surgery",
+  "Neurology",
+  "Nutrition",
+  "Obstetrics and Gynaecology",
+  "Ophthalmology",
+  "Orthopaedic Surgery",
+  "Paediatric Cardiology",
+  "Paediatric Critical Care",
+  "Paediatric Emergency",
+  "Paediatric Endocrinology",
+  "Paediatric Gastroenterology",
+  "Paediatric Genetics and Metabolics",
+  "Paediatric Infectious Diseases",
+  "Paediatric Neonatology",
+  "Paediatric Nephrology",
+  "Paediatric Neurology",
+  "Paediatric Occupational Therapy",
+  "Paediatric Oncology",
+  "Paediatric Physical Therapy and Rehabilitation",
+  "Paediatric Psychology",
+  "Paediatric Rheumatology",
+  "Paediatric Surgery",
+  "Pain Medicine – Anaesthesiology",
+  "Palliative Care",
+  "Physiotherapy",
+  "Plastic Surgery",
+  "Psychiatry",
+  "Pulmonology",
+  "Radiation Oncology",
+  "Radiology",
+  "Rehabilitative Medicine",
+  "Rheumatology",
+  "Speech and Occupational Therapy",
+  "Urology",
+  "Vascular Surgery",
+];
+
+const akuhSpecialtyCache = new Map<string, { doctors: Doctor[]; fetchedAt: number }>();
+
+async function fetchAKUHSpecialtyPage(specialty: string): Promise<Doctor[]> {
+  const cacheKey = specialty.toLowerCase();
+  const cached = akuhSpecialtyCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.doctors;
+  }
+
+  const url =
+    "https://hospitals.aku.edu/pakistan/patientservices/pages/findadoctor.aspx?Spec=" +
+    encodeURIComponent(specialty.trim());
+
+  const res = await fetch(url, {
     headers: COMMON_HEADERS,
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(15000),
   });
-
-  if (!res.ok) throw new Error(`AKUH fetch failed: ${res.status}`);
+  if (!res.ok) return [];
   const html = await res.text();
 
   const doctors: Doctor[] = [];
@@ -289,13 +364,11 @@ async function fetchAKUHDoctors(): Promise<Doctor[]> {
 
   let m: RegExpExecArray | null;
   while ((m = scheduleRegex.exec(html)) !== null) {
-    const speciality = m[1].trim();
     const name = m[2].trim();
-    if (!name || !speciality) continue;
-
+    if (!name) continue;
     doctors.push({
       name,
-      speciality,
+      speciality: specialty.trim(),
       opd: "Mon–Sat",
       timing: "Contact AKUH for OPD timings",
       hospital: HOSPITALS.akuh.name,
@@ -306,7 +379,31 @@ async function fetchAKUHDoctors(): Promise<Doctor[]> {
     });
   }
 
-  if (doctors.length === 0) {
+  akuhSpecialtyCache.set(cacheKey, { doctors, fetchedAt: Date.now() });
+  return doctors;
+}
+
+async function fetchAKUHDoctors(): Promise<Doctor[]> {
+  // Fetch all specialty pages in parallel — each is individually cached.
+  const results = await Promise.allSettled(
+    AKUH_SPECIALTIES.map(spec => fetchAKUHSpecialtyPage(spec))
+  );
+
+  const allDoctors: Doctor[] = [];
+  const seen = new Set<string>();
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      for (const doc of result.value) {
+        if (!seen.has(doc.name)) {
+          seen.add(doc.name);
+          allDoctors.push(doc);
+        }
+      }
+    }
+  }
+
+  if (allDoctors.length === 0) {
     return [{
       name: "Find Doctor via AKUH Directory",
       speciality: "All Specialities Available",
@@ -320,7 +417,7 @@ async function fetchAKUHDoctors(): Promise<Doctor[]> {
     }];
   }
 
-  return doctors;
+  return allDoctors;
 }
 
 // ── Cache layer ────────────────────────────────────────────────────────────
