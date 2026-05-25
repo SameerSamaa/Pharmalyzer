@@ -1,20 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, Volume2, VolumeX, RotateCcw, Loader2, Bot, User, Hospital } from "lucide-react";
+import { Mic, MicOff, Volume2, VolumeX, RotateCcw, Loader2, Bot, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurLogo } from "@/components/sur-logo";
 import { useSurChat } from "@/hooks/use-sur-chat";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceRecord } from "@/hooks/use-voice-record";
-
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/^[•\-]\s*/gm, "")
-    .replace(/^\d+\.\s*/gm, "")
-    .replace(/<[^>]*>/g, "")
-    .trim();
-}
+import { stripMarkdown, FormattedContent, HospitalFilterChips } from "@/components/formatted-message";
 
 type VoiceStatus = "idle" | "listening" | "thinking" | "speaking";
 
@@ -114,11 +105,15 @@ export function Voice() {
   const isActive = status === "listening";
   const isBusy = status === "thinking" || status === "speaking";
 
+  const handleHospitalFilter = (fullName: string) => {
+    sendMessage(`Show me only doctors from ${fullName}`);
+  };
+
   return (
-    <div className="max-w-2xl mx-auto flex flex-col items-center gap-6 py-4" style={{ minHeight: "calc(100dvh - 9rem)" }}>
+    <div className="max-w-2xl mx-auto flex flex-col py-4 px-2" style={{ height: "calc(100dvh - 8rem)" }}>
 
       {/* Top bar */}
-      <div className="w-full flex items-center justify-between">
+      <div className="w-full flex items-center justify-between shrink-0">
         <h1 className="text-lg font-bold tracking-tight flex items-center gap-2">
           <SurLogo size="sm" />
           SUR Voice
@@ -136,85 +131,81 @@ export function Voice() {
         </div>
       </div>
 
-      {/* SUR avatar + status */}
-      <div className="flex flex-col items-center gap-3 mt-4">
-        <div className={`relative ${isBusy || isActive ? "drop-shadow-lg" : ""}`}>
-          {/* Pulse rings when active */}
+      {/* SUR avatar + status (compact, doesn't take all the space) */}
+      <div className="flex flex-col items-center gap-2 mt-4 mb-3 shrink-0">
+        <div className={`relative transition-transform duration-300 ${isActive ? "scale-105" : ""}`}>
           {(isActive || status === "speaking") && (
             <>
               <span className="absolute inset-0 rounded-full animate-ping bg-primary/20 scale-150" />
-              <span className="absolute inset-0 rounded-full animate-ping bg-primary/10 scale-[2] animation-delay-150" />
+              <span className="absolute inset-0 rounded-full animate-ping bg-primary/10 scale-[1.8] [animation-delay:300ms]" />
             </>
           )}
-          <SurLogo size="xl" pulse={status === "thinking"} />
+          <SurLogo size={hasMessages ? "lg" : "xl"} pulse={status === "thinking"} />
         </div>
         <p className={`text-sm font-medium transition-colors ${isActive ? "text-primary" : "text-muted-foreground"}`}>
           {STATUS_TEXT[status]}
         </p>
-        {transcript && (
-          <p className="text-sm italic text-foreground/70 max-w-xs text-center">"{transcript}"</p>
+        {transcript && status !== "thinking" && (
+          <p className="text-sm italic text-foreground/70 max-w-xs text-center px-4 line-clamp-2">"{transcript}"</p>
         )}
       </div>
 
-      {/* Conversation preview */}
-      {hasMessages && (
-        <div className="w-full space-y-3 px-2">
-          {lastUser && (
-            <div className="flex gap-3 flex-row-reverse">
-              <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-primary text-white">
-                <User className="w-4 h-4" />
-              </div>
-              <div className="max-w-[80%] rounded-2xl rounded-tr-sm px-4 py-3 text-sm bg-primary text-primary-foreground">
-                {lastUser.content}
-              </div>
-            </div>
-          )}
-          {lastAssistant && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-primary text-white">
-                <Bot className="w-4 h-4" />
-              </div>
-              <div className="max-w-[80%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm bg-card border border-border relative">
-                {lastAssistant.streaming ? (
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking...
-                  </span>
-                ) : (
-                  lastAssistant.content
-                )}
-                {lastAssistant.hospitalButtons && lastAssistant.hospitalButtons.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-border/50">
-                    <span className="text-xs text-muted-foreground flex items-center gap-1 w-full">
-                      <Hospital className="w-3 h-3" /> Filter by hospital:
-                    </span>
-                    {lastAssistant.hospitalButtons.map((btn) => (
-                      <button
-                        key={btn.key}
-                        onClick={() => sendMessage(`Show me only doctors from ${btn.fullName}`)}
-                        disabled={isBusy || isStreaming}
-                        className="text-xs px-3 py-1 rounded-full border border-primary/40 text-primary bg-primary/5 hover:bg-primary/15 transition-all disabled:opacity-40"
-                      >
-                        {btn.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Conversation preview — scrollable, takes the remaining space */}
+      <div className="flex-1 min-h-0 overflow-y-auto w-full space-y-3 pr-1 -mr-1">
+        {!hasMessages && (
+          <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-2">
+            <p className="text-sm text-muted-foreground">
+              Tap the mic and ask SUR anything — medicines, symptoms, or finding a doctor.
+            </p>
+          </div>
+        )}
 
-      {/* Spacer */}
-      <div className="flex-1" />
+        {lastUser && (
+          <div className="flex gap-3 flex-row-reverse animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center bg-primary text-white">
+              <User className="w-3.5 h-3.5" />
+            </div>
+            <div className="max-w-[80%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm bg-primary text-primary-foreground">
+              {lastUser.content}
+            </div>
+          </div>
+        )}
 
-      {/* Mic button */}
-      <div className="flex flex-col items-center gap-3 pb-4">
+        {lastAssistant && (
+          <div className="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center bg-primary text-white">
+              <Bot className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm px-4 py-3 text-sm bg-card border border-border">
+              {lastAssistant.streaming && !lastAssistant.content ? (
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking...
+                </span>
+              ) : (
+                <FormattedContent content={lastAssistant.content} />
+              )}
+              {lastAssistant.streaming && lastAssistant.content && (
+                <span className="inline-block w-1.5 h-4 bg-primary/60 rounded-sm ml-0.5 animate-pulse align-middle" />
+              )}
+              {!lastAssistant.streaming && lastAssistant.hospitalButtons && lastAssistant.hospitalButtons.length > 0 && (
+                <HospitalFilterChips
+                  buttons={lastAssistant.hospitalButtons}
+                  onFilter={handleHospitalFilter}
+                  disabled={isBusy || isStreaming}
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Mic button — fixed at bottom */}
+      <div className="flex flex-col items-center gap-2 pt-4 pb-2 shrink-0">
         <button
           onClick={handleMicClick}
-          disabled={isBusy}
+          disabled={isBusy && !isActive}
           aria-label={isActive ? "Stop listening" : "Start speaking"}
-          className={`relative w-20 h-20 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/40 ${
+          className={`relative w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/40 ${
             isActive
               ? "bg-red-500 hover:bg-red-600 scale-110"
               : isBusy
@@ -222,22 +213,18 @@ export function Voice() {
               : "bg-primary hover:bg-primary/90 hover:scale-105 active:scale-95"
           }`}
         >
-          {isBusy ? (
-            <Loader2 className="w-8 h-8 text-white animate-spin" />
+          {isBusy && !isActive ? (
+            <Loader2 className="w-7 h-7 text-white animate-spin" />
           ) : isActive ? (
-            <MicOff className="w-8 h-8 text-white" />
+            <MicOff className="w-7 h-7 text-white" />
           ) : (
-            <Mic className="w-8 h-8 text-white" />
+            <Mic className="w-7 h-7 text-white" />
           )}
         </button>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[11px] text-muted-foreground">
           {isActive ? "Tap to stop" : isBusy ? "Please wait..." : "Tap to speak"}
         </p>
       </div>
-
-      <p className="text-center text-xs text-muted-foreground pb-2">
-        For informational use only. Always consult a qualified doctor for medical advice.
-      </p>
     </div>
   );
 }
