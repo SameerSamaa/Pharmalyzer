@@ -3,6 +3,30 @@ import { Send, Bot, User, Loader2, RotateCcw, Pill, Stethoscope, MapPin, Hospita
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
+function SurLogo({ size = "sm" }: { size?: "sm" | "lg" }) {
+  const isLg = size === "lg";
+  return (
+    <div
+      className={`relative flex flex-col items-center justify-center bg-primary rounded-2xl shadow-sm select-none ${
+        isLg ? "w-16 h-16 rounded-2xl" : "w-9 h-9 rounded-xl"
+      }`}
+    >
+      {/* Antenna */}
+      <div className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-primary rounded-full ${isLg ? "w-2 h-2" : "w-1.5 h-1.5"}`} />
+      <div className={`absolute bg-white/80 rounded-full ${isLg ? "top-1 w-1.5 h-1.5 left-1/2 -translate-x-1/2" : "top-0.5 w-1 h-1 left-1/2 -translate-x-1/2"}`} />
+      {/* SUR text — main focal point */}
+      <span className={`font-black text-white tracking-widest leading-none ${isLg ? "text-lg" : "text-[11px]"}`}>
+        SUR
+      </span>
+      {/* Robot eyes */}
+      <div className={`flex items-center justify-center ${isLg ? "gap-2 mt-1.5" : "gap-1 mt-1"}`}>
+        <div className={`bg-white/80 rounded-full ${isLg ? "w-2 h-2" : "w-1 h-1"}`} />
+        <div className={`bg-white/80 rounded-full ${isLg ? "w-2 h-2" : "w-1 h-1"}`} />
+      </div>
+    </div>
+  );
+}
+
 type Role = "user" | "assistant";
 
 interface HospitalButton {
@@ -267,10 +291,7 @@ export function Chat() {
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <span className="relative inline-flex items-center justify-center w-6 h-6">
-              <Bot className="w-6 h-6 text-primary" />
-              <span className="absolute inset-0 flex items-center justify-center text-[4.5px] font-black text-primary leading-none tracking-wider">SUR</span>
-            </span>
+            <SurLogo size="sm" />
             Ask SUR for medical assistance
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -290,10 +311,7 @@ export function Chat() {
         {isEmpty ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-4 space-y-8">
             <div className="space-y-3">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto relative">
-                <Bot className="w-8 h-8 text-primary" />
-                <span className="absolute inset-0 flex items-center justify-center text-[6px] font-black text-primary leading-none tracking-wider">SUR</span>
-              </div>
+              <SurLogo size="lg" />
               <h2 className="text-xl font-semibold">Hi, I'm SUR</h2>
               <p className="text-sm text-muted-foreground max-w-sm">
                 Ask me about any medicine, describe your symptoms for doctor guidance, or find real doctors and hospitals in your city.
