@@ -36,11 +36,27 @@ const HOSPITALS: Record<string, {
     city: "karachi",
     fetchFn: fetchKMHDoctors,
   },
+  saifee: {
+    name: "Saifee Hospital",
+    phone: "021-36601700",
+    address: "Karachi Cantonment, Karachi",
+    url: "https://saifeehospital.com.pk/doctors/",
+    city: "karachi",
+    fetchFn: fetchSaifeeDoctors,
+  },
+  lnh: {
+    name: "Liaquat National Hospital (LNH)",
+    phone: "021-111-588-588",
+    address: "Stadium Road, Karachi",
+    url: "https://www.lnh.edu.pk/doctors",
+    city: "karachi",
+    fetchFn: fetchLNHDoctors,
+  },
   akuh: {
     name: "Aga Khan University Hospital (AKUH)",
     phone: "021-111-911-911",
     address: "Stadium Road, Karachi",
-    url: "https://hospitals.aku.edu/pakistan/Pages/find-a-doctor.aspx",
+    url: "https://hospitals.aku.edu/pakistan/patientservices/Pages/findadoctor.aspx",
     city: "karachi",
     fetchFn: fetchAKUHDoctors,
   },
@@ -87,23 +103,165 @@ async function fetchKMHDoctors(): Promise<Doctor[]> {
   return doctors;
 }
 
+// ── Saifee Hospital scraper ────────────────────────────────────────────────
+
+async function fetchSaifeeDoctors(): Promise<Doctor[]> {
+  const res = await fetch("https://saifeehospital.com.pk/doctors/", {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) throw new Error(`Saifee fetch failed: ${res.status}`);
+  const html = await res.text();
+
+  const doctors: Doctor[] = [];
+
+  // Each doctor card has an appointment URL with speciality and doctor name
+  // Pattern: book-an-appointment?speciality=SPECIALITY&doctor=Dr.+Name
+  // Doctor display name is in .doctor-content a
+  const cardRegex =
+    /book-an-appointment\?speciality=([^&"]+)&(?:amp;)?doctor=([^"]+)["'][^>]*>[\s\S]*?<div class="doctor-content">\s*<a[^>]*>([^<]+)<\/a>/g;
+
+  let m: RegExpExecArray | null;
+  while ((m = cardRegex.exec(html)) !== null) {
+    const rawSpeciality = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+    const displayName = m[3].trim();
+    if (!displayName) continue;
+
+    // Try to extract timing from the hidden span after this card
+    // Pattern: <span class="timing" style="display: none;">...timingText...
+    doctors.push({
+      name: displayName,
+      speciality: rawSpeciality
+        .split(" ")
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(" "),
+      opd: "Mon–Sat",
+      timing: "Contact hospital for timings",
+      hospital: HOSPITALS.saifee.name,
+      hospitalPhone: HOSPITALS.saifee.phone,
+      hospitalAddress: HOSPITALS.saifee.address,
+      hospitalUrl: HOSPITALS.saifee.url,
+      city: HOSPITALS.saifee.city,
+    });
+  }
+
+  // Deduplicate by name
+  const seen = new Set<string>();
+  return doctors.filter(d => {
+    if (seen.has(d.name)) return false;
+    seen.add(d.name);
+    return true;
+  });
+}
+
+// ── LNH scraper ────────────────────────────────────────────────────────────
+
+async function fetchLNHDoctors(): Promise<Doctor[]> {
+  const res = await fetch("https://www.lnh.edu.pk/doctors", {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) throw new Error(`LNH fetch failed: ${res.status}`);
+  const html = await res.text();
+
+  const doctors: Doctor[] = [];
+
+  // Doctor name: <h5 class="name mb-0 mt-0 text-theme-colored">Dr. Name</h5>
+  // Speciality: <p class="font-14 font-weight-500">\n  Designation\n  <br />\n  Speciality\n</p>
+  const cardRegex =
+    /<h5 class="name mb-0 mt-0 text-theme-colored">([\s\S]*?)<\/h5>[\s\S]*?<p class="font-14 font-weight-500">([\s\S]*?)<\/p>/g;
+
+  let m: RegExpExecArray | null;
+  while ((m = cardRegex.exec(html)) !== null) {
+    const name = m[1].replace(/\s+/g, " ").trim();
+    if (!name) continue;
+
+    // The <p> block contains: Designation<br />Speciality
+    const pContent = m[2];
+    const parts = pContent.split(/<br\s*\/?>/i).map(p => p.replace(/\s+/g, " ").trim()).filter(Boolean);
+    // Last non-empty part is the speciality
+    const speciality = parts[parts.length - 1] || "General";
+
+    doctors.push({
+      name,
+      speciality,
+      opd: "Mon–Sat",
+      timing: "Contact hospital for OPD timings",
+      hospital: HOSPITALS.lnh.name,
+      hospitalPhone: HOSPITALS.lnh.phone,
+      hospitalAddress: HOSPITALS.lnh.address,
+      hospitalUrl: HOSPITALS.lnh.url,
+      city: HOSPITALS.lnh.city,
+    });
+  }
+
+  return doctors;
+}
+
 // ── AKUH scraper ───────────────────────────────────────────────────────────
 
 async function fetchAKUHDoctors(): Promise<Doctor[]> {
-  // AKUH renders doctors via client-side JS so we can't get individual records.
-  // Return a sentinel that lets the AI know the hospital exists with contact info,
-  // so it can direct the user there with accurate details.
-  return [{
-    name: "Find Doctor via AKUH Directory",
-    speciality: "All Specialities Available",
-    opd: "Mon–Sat",
-    timing: "8:00 AM – 8:00 PM (varies by doctor)",
-    hospital: HOSPITALS.akuh.name,
-    hospitalPhone: HOSPITALS.akuh.phone,
-    hospitalAddress: HOSPITALS.akuh.address,
-    hospitalUrl: HOSPITALS.akuh.url,
-    city: HOSPITALS.akuh.city,
-  }];
+  const res = await fetch("https://hospitals.aku.edu/pakistan/patientservices/Pages/findadoctor.aspx", {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+    signal: AbortSignal.timeout(20000),
+  });
+
+  if (!res.ok) throw new Error(`AKUH fetch failed: ${res.status}`);
+  const html = await res.text();
+
+  const doctors: Doctor[] = [];
+
+  // Pattern from Angular ng-click:
+  // ng-click='getScheduleDoc("CODE" , "Speciality","Doctor Name ")'
+  const scheduleRegex =
+    /ng-click='getScheduleDoc\("[^"]*"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)'\s+class="btn btn-xs btn-xs-Schedue/g;
+
+  let m: RegExpExecArray | null;
+  while ((m = scheduleRegex.exec(html)) !== null) {
+    const speciality = m[1].trim();
+    const name = m[2].trim();
+    if (!name || !speciality) continue;
+
+    doctors.push({
+      name,
+      speciality,
+      opd: "Mon–Sat",
+      timing: "Contact AKUH for OPD timings",
+      hospital: HOSPITALS.akuh.name,
+      hospitalPhone: HOSPITALS.akuh.phone,
+      hospitalAddress: HOSPITALS.akuh.address,
+      hospitalUrl: HOSPITALS.akuh.url,
+      city: HOSPITALS.akuh.city,
+    });
+  }
+
+  // If scraping produced no results (JS-heavy fallback), return sentinel
+  if (doctors.length === 0) {
+    return [{
+      name: "Find Doctor via AKUH Directory",
+      speciality: "All Specialities Available",
+      opd: "Mon–Sat",
+      timing: "8:00 AM – 8:00 PM (varies by doctor)",
+      hospital: HOSPITALS.akuh.name,
+      hospitalPhone: HOSPITALS.akuh.phone,
+      hospitalAddress: HOSPITALS.akuh.address,
+      hospitalUrl: HOSPITALS.akuh.url,
+      city: HOSPITALS.akuh.city,
+    }];
+  }
+
+  return doctors;
 }
 
 // ── Cache layer ────────────────────────────────────────────────────────────
@@ -358,14 +516,12 @@ export function extractSpecialtyKeywords(message: string): string[] {
   const lower = message.toLowerCase();
   const matches = new Set<string>();
 
-  // Match symptom/condition phrases
   for (const [kw, specialties] of Object.entries(SYMPTOM_SPECIALTY_MAP)) {
     if (lower.includes(kw)) {
       specialties.forEach(s => matches.add(s));
     }
   }
 
-  // Direct specialty mentions
   const directSpecialties = [
     "cardiolog", "cardiac", "dermatolog", "orthopedic", "orthopaedic",
     "gastroenterolog", "pediatric", "paediatric", "ophthalmolog", "neurolog",
@@ -386,7 +542,6 @@ export function extractSpecialtyKeywords(message: string): string[] {
 export function isDoctorOrSymptomQuery(message: string): boolean {
   const lower = message.toLowerCase();
 
-  // Explicit doctor/hospital request words
   const doctorTerms = [
     "doctor", "hospital", "clinic", "specialist", "surgeon", "physician",
     "dr ", "dr.", "best doctor", "good doctor", "suggest doctor",
@@ -397,7 +552,6 @@ export function isDoctorOrSymptomQuery(message: string): boolean {
   const hasDoctorTerm = doctorTerms.some(t => lower.includes(t));
   if (hasDoctorTerm) return true;
 
-  // Has symptoms that map to a specialty
   const specialties = extractSpecialtyKeywords(message);
   if (specialties.length > 0) return true;
 
@@ -441,6 +595,14 @@ function filterDoctorsBySpecialty(doctors: Doctor[], specialtyKeywords: string[]
   });
 }
 
+// ── Hospital button info ──────────────────────────────────────────────────
+
+export interface HospitalButton {
+  key: string;
+  label: string;
+  fullName: string;
+}
+
 // ── Main search function ──────────────────────────────────────────────────
 
 export interface HospitalSearchResult {
@@ -449,6 +611,7 @@ export interface HospitalSearchResult {
   sourceUrl: string;
   fetchedAt: string;
   error?: string;
+  hospitalKey: string;
 }
 
 export async function searchDoctorsInCity(
@@ -476,6 +639,7 @@ export async function searchDoctorsInCity(
         source: hosp.name,
         sourceUrl: hosp.url,
         fetchedAt: new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }),
+        hospitalKey: key,
       });
     } catch (err) {
       results.push({
@@ -484,9 +648,27 @@ export async function searchDoctorsInCity(
         sourceUrl: hosp.url,
         fetchedAt: "",
         error: `Could not fetch data: ${(err as Error).message}`,
+        hospitalKey: key,
       });
     }
   }
 
   return results;
 }
+
+// ── Get hospital buttons from search results ──────────────────────────────
+
+export function getHospitalButtons(results: HospitalSearchResult[]): HospitalButton[] {
+  return results.map(r => ({
+    key: r.hospitalKey,
+    label: HOSPITAL_SHORT_LABELS[r.hospitalKey] ?? r.source,
+    fullName: r.source,
+  }));
+}
+
+const HOSPITAL_SHORT_LABELS: Record<string, string> = {
+  kmh: "KMH",
+  saifee: "Saifee",
+  lnh: "LNH",
+  akuh: "AKUH",
+};

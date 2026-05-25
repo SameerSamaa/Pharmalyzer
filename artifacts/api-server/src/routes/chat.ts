@@ -5,7 +5,9 @@ import {
   detectCity,
   searchDoctorsInCity,
   extractSpecialtyKeywords,
+  getHospitalButtons,
   type HospitalSearchResult,
+  type HospitalButton,
 } from "./hospital-scraper.js";
 
 const router: IRouter = Router();
@@ -98,6 +100,8 @@ RESOURCES (mention when relevant)
 • **oladoc.com** — Find doctors by city, speciality, and availability
 • **marham.pk** — Pakistan's largest doctor-finding platform
 • **kmh.org.pk** — Kutiyana Memon Hospital, Karachi (021-111-564-111)
+• **saifeehospital.com.pk** — Saifee Hospital, Karachi (021-36601700)
+• **lnh.edu.pk** — Liaquat National Hospital, Karachi (021-111-588-588)
 • **hospitals.aku.edu** — Aga Khan University Hospital, Karachi (021-111-911-911)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -179,10 +183,10 @@ router.post("/chat/message", async (req, res): Promise<void> => {
 
   try {
     let systemPrompt = SYSTEM_PROMPT;
+    let hospitalButtons: HospitalButton[] = [];
 
-    // Trigger doctor search on symptoms OR explicit doctor request — city is optional
     if (isDoctorOrSymptomQuery(message)) {
-      const city = detectCity(message); // may be null
+      const city = detectCity(message);
       const specialties = extractSpecialtyKeywords(message);
 
       req.log.info({ message, city, specialties }, "Doctor/symptom query — fetching hospital data");
@@ -191,6 +195,7 @@ router.post("/chat/message", async (req, res): Promise<void> => {
         const results = await searchDoctorsInCity(message, city);
         const doctorContext = buildDoctorContext(results, city, specialties);
         systemPrompt = `${SYSTEM_PROMPT}\n\n${doctorContext}`;
+        hospitalButtons = getHospitalButtons(results);
         req.log.info(
           { city: city ?? "all", hospitalCount: results.length, specialties },
           "Hospital data fetched successfully"
@@ -224,6 +229,11 @@ router.post("/chat/message", async (req, res): Promise<void> => {
       if (content) {
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
+    }
+
+    // Send hospital filter buttons if this was a doctor search
+    if (hospitalButtons.length > 0) {
+      res.write(`data: ${JSON.stringify({ hospitalButtons })}\n\n`);
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

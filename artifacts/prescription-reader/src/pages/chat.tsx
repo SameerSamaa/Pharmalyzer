@@ -1,15 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, RotateCcw, Pill, Stethoscope, MapPin } from "lucide-react";
+import { Send, Bot, User, Loader2, RotateCcw, Pill, Stethoscope, MapPin, Hospital } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 type Role = "user" | "assistant";
+
+interface HospitalButton {
+  key: string;
+  label: string;
+  fullName: string;
+}
 
 interface Message {
   id: string;
   role: Role;
   content: string;
   streaming?: boolean;
+  hospitalButtons?: HospitalButton[];
 }
 
 const SUGGESTIONS = [
@@ -22,9 +29,7 @@ const SUGGESTIONS = [
 ];
 
 function formatMarkdown(text: string): string {
-  // Bold
   let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-  // Convert lines to elements
   const lines = html.split("\n");
   const out: string[] = [];
   let inList = false;
@@ -47,15 +52,50 @@ function formatMarkdown(text: string): string {
   return out.join("");
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function HospitalFilterChips({
+  buttons,
+  onFilter,
+  disabled,
+}: {
+  buttons: HospitalButton[];
+  onFilter: (fullName: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border/50">
+      <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 self-center">
+        <Hospital className="w-3 h-3" />
+        Filter by hospital:
+      </span>
+      {buttons.map((btn) => (
+        <button
+          key={btn.key}
+          onClick={() => onFilter(btn.fullName)}
+          disabled={disabled}
+          className="text-xs px-3 py-1.5 rounded-full border border-primary/40 text-primary bg-primary/5 hover:bg-primary/15 hover:border-primary transition-all disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+        >
+          {btn.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  onHospitalFilter,
+  isStreaming,
+}: {
+  message: Message;
+  onHospitalFilter: (text: string) => void;
+  isStreaming: boolean;
+}) {
   const isUser = message.role === "user";
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       <div
-        className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white mt-1 ${
-          isUser ? "bg-primary" : "bg-primary"
-        }`}
+        className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white mt-1 bg-primary`}
       >
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
       </div>
@@ -70,10 +110,19 @@ function MessageBubble({ message }: { message: Message }) {
         {isUser ? (
           <p>{message.content}</p>
         ) : (
-          <div
-            className="prose prose-sm max-w-none [&_strong]:font-semibold [&_strong]:text-foreground [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ul]:ml-4 [&_ul]:list-disc [&_li]:mb-1"
-            dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
-          />
+          <>
+            <div
+              className="prose prose-sm max-w-none [&_strong]:font-semibold [&_strong]:text-foreground [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ul]:ml-4 [&_ul]:list-disc [&_li]:mb-1"
+              dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
+            />
+            {!message.streaming && message.hospitalButtons && message.hospitalButtons.length > 0 && (
+              <HospitalFilterChips
+                buttons={message.hospitalButtons}
+                onFilter={onHospitalFilter}
+                disabled={isStreaming}
+              />
+            )}
+          </>
         )}
         {message.streaming && (
           <span className="inline-block w-1.5 h-4 bg-primary/60 rounded-sm ml-0.5 animate-pulse align-middle" />
@@ -134,6 +183,7 @@ export function Chat() {
       const decoder = new TextDecoder();
       let accumulated = "";
       let buffer = "";
+      let pendingButtons: HospitalButton[] | undefined;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -156,6 +206,9 @@ export function Chat() {
                 )
               );
             }
+            if (data.hospitalButtons) {
+              pendingButtons = data.hospitalButtons as HospitalButton[];
+            }
           } catch {
             // ignore parse errors on partial chunks
           }
@@ -163,7 +216,11 @@ export function Chat() {
       }
 
       setMessages((prev) =>
-        prev.map((m) => (m.id === assistantId ? { ...m, streaming: false } : m))
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, streaming: false, hospitalButtons: pendingButtons }
+            : m
+        )
       );
     } catch (err: unknown) {
       if ((err as Error)?.name === "AbortError") return;
@@ -180,6 +237,10 @@ export function Chat() {
       inputRef.current?.focus();
     }
   }, [isStreaming, messages]);
+
+  const handleHospitalFilter = useCallback((fullName: string) => {
+    sendMessage(`Show me only doctors from ${fullName}`);
+  }, [sendMessage]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,14 +310,19 @@ export function Chat() {
             </div>
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-4 py-2">
-              <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
-              <span>Doctor &amp; hospital searches use live web data — results include source websites</span>
+              <Hospital className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span>Live doctor data from KMH, Saifee, LNH &amp; AKUH — 4 Karachi hospitals</span>
             </div>
           </div>
         ) : (
           <>
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                onHospitalFilter={handleHospitalFilter}
+                isStreaming={isStreaming}
+              />
             ))}
             {isStreaming && messages[messages.length - 1]?.role === "user" && (
               <div className="flex gap-3">
