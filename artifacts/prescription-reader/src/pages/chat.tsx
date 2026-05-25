@@ -267,8 +267,11 @@ export function Chat() {
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Bot className="w-6 h-6 text-primary" />
-            SUR — Medical Assistant
+            <span className="relative inline-flex items-center justify-center w-7 h-7">
+              <Bot className="w-6 h-6 text-primary" />
+              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[5.5px] font-black bg-primary text-primary-foreground px-1 py-px rounded leading-none tracking-wide">SUR</span>
+            </span>
+            Ask SUR for medical assistance
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Ask about medicines, symptoms, or find doctors and hospitals near you
@@ -287,8 +290,9 @@ export function Chat() {
         {isEmpty ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-4 space-y-8">
             <div className="space-y-3">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto relative">
                 <Bot className="w-8 h-8 text-primary" />
+                <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-[8px] font-black bg-primary text-primary-foreground px-2 py-0.5 rounded-full leading-none tracking-widest shadow">SUR</span>
               </div>
               <h2 className="text-xl font-semibold">Hi, I'm SUR</h2>
               <p className="text-sm text-muted-foreground max-w-sm">
