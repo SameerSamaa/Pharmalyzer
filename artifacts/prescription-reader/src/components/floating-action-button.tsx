@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useLocation } from "wouter";
-import { Plus, MessageCircle, Camera } from "lucide-react";
+import { Plus, MessageCircle, Camera, Mic } from "lucide-react";
 import { useAuth } from "@/context/auth";
 import { usePendingUpload } from "@/context/pending-upload";
 
@@ -60,6 +60,11 @@ export function FloatingActionButton() {
     setLocation("/chat");
   };
 
+  const handleVoiceClick = () => {
+    setOpen(false);
+    setLocation("/voice");
+  };
+
   const handleCameraClick = () => {
     fileInputRef.current?.click();
   };
@@ -75,6 +80,13 @@ export function FloatingActionButton() {
       )}
 
       <div className="fixed bottom-5 right-5 sm:bottom-7 sm:right-7 z-50 flex flex-col items-end gap-3">
+        <FabOption
+          icon={<Mic className="w-5 h-5" />}
+          label="Talk to SUR"
+          onClick={handleVoiceClick}
+          visible={open}
+          delay="100ms"
+        />
         <FabOption
           icon={<MessageCircle className="w-5 h-5" />}
           label="Ask SUR"
