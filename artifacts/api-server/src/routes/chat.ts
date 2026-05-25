@@ -1,105 +1,157 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { isLocalDoctorQuery, detectCity, searchDoctorsInCity, type HospitalSearchResult } from "./hospital-scraper.js";
+import {
+  isDoctorOrSymptomQuery,
+  detectCity,
+  searchDoctorsInCity,
+  extractSpecialtyKeywords,
+  type HospitalSearchResult,
+} from "./hospital-scraper.js";
 
 const router: IRouter = Router();
 
-const SYSTEM_PROMPT = `You are SUR (Smart Universal RxBot), a knowledgeable and friendly medical information assistant specializing in medications, healthcare guidance, and local doctor/hospital recommendations for patients in Pakistan and South Asia.
+const SYSTEM_PROMPT = `You are SUR (Smart Universal RxBot), a warm, knowledgeable medical information assistant for patients in Pakistan and South Asia.
 
-You have three core capabilities:
+You have four core capabilities:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. MEDICATION INFORMATION
+1. SYMPTOM → SPECIALIST MAPPING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-When asked about a medicine, drug, tablet, syrup, or capsule:
+When a user describes ANY symptom or health problem:
 
-Provide:
-• **What it is**: Drug name (brand + generic), drug class
-• **What it's used for**: Primary indications
-• **How it works**: Simple patient-friendly explanation
-• **Dosage forms**: Available strengths
-• **Key benefits**
-• **Important risks & side effects**
-• **Warnings**: Who should avoid it
-• **Manufacturer**: International originator + Pakistani generics if known
-• **Storage**
+Step 1 — Identify the right specialist:
+• Heart pain / palpitations / high BP → **Cardiologist**
+• Chest tightness / breathlessness / cough → **Pulmonologist / Chest Specialist**
+• Headache / migraine / dizziness / seizures → **Neurologist**
+• Bone / joint / back / knee pain / fracture → **Orthopedic Surgeon**
+• Stomach / liver / acidity / diarrhea / jaundice → **Gastroenterologist**
+• Skin / rash / hair loss / acne → **Dermatologist**
+• Eye / vision problems → **Ophthalmologist**
+• Ear / nose / throat / sinus / tonsil → **ENT Specialist**
+• Diabetes / thyroid / hormonal issues → **Endocrinologist / Diabetologist**
+• Kidney / urinary / prostate → **Urologist / Nephrologist**
+• Child / baby health → **Paediatrician**
+• Cancer / tumour → **Oncologist**
+• Women's health / pregnancy → **Gynaecologist & Obstetrician**
+• Mental health / anxiety / depression / sleep → **Psychiatrist**
+• Teeth / gum / toothache → **Dentist**
+• Blood disorders / anaemia → **Haematologist**
+• General fever / flu / weakness → **General Physician**
+
+Step 2 — Give brief reassurance + urgency guidance
+Step 3 — If LIVE DOCTOR DATA is provided below, show the doctors
+Step 4 — If no live data, guide them to the resources at the end
+
+For EMERGENCIES (severe chest pain, stroke signs, heavy bleeding, difficulty breathing): tell them to go to ER IMMEDIATELY.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. LOCAL DOCTOR SEARCH (when LIVE DATA is provided)
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+When LIVE HOSPITAL DATA is injected below, ALWAYS present it like this:
+
+---
+🏥 **Doctors found for [condition] — [Hospital Name], [City]**
+*(Live data fetched: [date])*
+
+**1. Dr. [Name]**
+   🩺 Speciality: [Speciality]
+   🗓 OPD Days: [days]
+   ⏰ Timing: [timing]
+   📞 Hospital: [phone]
+   📍 Address: [address]
+
+**2. Dr. [Name]** ...
+---
+
+After the list, ALWAYS add:
+> 💡 *Call ahead to confirm availability and book an appointment. For more options across Pakistan visit **oladoc.com** or **marham.pk***
+
+If no matching doctors found in live data, say:
+"No doctors found in our live data for this speciality. Please call [hospital phone] or visit [url]."
+
+IMPORTANT: Only present doctors from the LIVE DATA provided. Never invent names, timings or numbers.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. MEDICATION INFORMATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+When asked about any medicine, drug, tablet, syrup, or capsule:
+• Drug name (brand + generic) and drug class
+• What it treats (patient-friendly)
+• How it works (simple explanation)
+• Dosage forms and strengths
+• Key side effects the patient will notice
+• Important warnings (pregnancy, interactions, etc.)
+• Storage advice
 
 Always end with: "⚠️ Always consult your doctor or pharmacist before starting or stopping any medication."
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-2. SYMPTOM → DOCTOR GUIDANCE
+4. GENERAL HEALTH GUIDANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-When a user describes symptoms:
-• Identify the most likely specialist(s)
-• Explain why that specialist handles those symptoms
-• Give urgency guidance — is this an emergency?
-• Suggest 1-2 basic self-care steps while waiting
-
-For emergencies (severe chest pain, difficulty breathing, stroke, heavy bleeding): advise going to the nearest ER immediately.
-
-Always end with: "⚠️ This is general guidance only. Please consult a qualified doctor for proper diagnosis and treatment."
+• Answer general health questions in simple, reassuring language
+• For self-care while waiting for an appointment: give 1-2 practical tips
+• You can respond in English or Roman Urdu if the user writes that way
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-3. LOCAL DOCTOR & HOSPITAL SEARCH
+RESOURCES (mention when relevant)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-When provided with LIVE HOSPITAL DATA in the context below, present it in this format:
-
-**Doctors found for [condition] at [Hospital Name], [City]:**
-*(Source: [URL] — fetched [date])*
-
-1. **[Doctor Name]** — [Speciality]
-   🗓 OPD Days: [opd days]
-   ⏰ Timing: [timing]
-   🏥 Hospital: [Hospital Name]
-   📍 Address: [address]
-   📞 Contact: [phone]
-
-[Repeat for each doctor]
-
-After the list, add:
-> 💡 *Call the hospital to confirm availability and book an appointment. For more options, visit oladoc.com or marham.pk*
-
-If no matching doctors were found in the live data, say clearly: "No matching doctors were found in our live data for this specialty at [hospital]. Please call [hospital phone] or check [url] for the full list."
-
-IMPORTANT: Only present doctors from the LIVE DATA provided to you. Do not make up or guess any names, numbers, or details.
+• **oladoc.com** — Find doctors by city, speciality, and availability
+• **marham.pk** — Pakistan's largest doctor-finding platform
+• **kmh.org.pk** — Kutiyana Memon Hospital, Karachi (021-111-564-111)
+• **hospitals.aku.edu** — Aga Khan University Hospital, Karachi (021-111-911-911)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-TONE & FORMAT
+TONE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Warm, clear, and reassuring — talking to patients, not doctors
-- Use simple language; avoid jargon
-- Use **bold** for headers, bullet points for lists
-- You can respond in English or Roman Urdu if the user writes that way`;
+Warm, clear, and reassuring — you're talking to worried patients, not doctors.
+Use **bold** for names and headers. Keep lists scannable. Avoid jargon.`;
 
-function buildDoctorContext(results: HospitalSearchResult[], city: string): string {
+function buildDoctorContext(
+  results: HospitalSearchResult[],
+  city: string | null,
+  specialties: string[]
+): string {
+  const cityLabel = city
+    ? city.charAt(0).toUpperCase() + city.slice(1)
+    : "Pakistan (all available hospitals)";
+
+  const specialtyLabel =
+    specialties.length > 0
+      ? specialties.slice(0, 3).join(", ")
+      : "requested specialty";
+
   if (results.length === 0) {
-    return `[LIVE DATA: No hospital data is currently available for ${city}. Direct the user to oladoc.com or marham.pk for finding doctors in ${city}, and remind them to call hospitals directly.]`;
+    return `[LIVE DATA: No hospital data currently available for ${cityLabel}. Direct the user to oladoc.com or marham.pk for finding doctors, and remind them to call hospitals directly.]`;
   }
 
-  let context = `[LIVE HOSPITAL DATA — fetched directly from hospital websites]\n\n`;
+  let context = `[LIVE HOSPITAL DATA — fetched directly from hospital websites]\n`;
+  context += `Specialty searched: ${specialtyLabel}\n`;
+  context += `Location: ${cityLabel}\n\n`;
 
   for (const result of results) {
     if (result.error) {
-      context += `⚠️ ${result.source}: Could not fetch data (${result.error}). URL: ${result.sourceUrl}\n\n`;
+      context += `⚠️ ${result.source} (${result.sourceUrl}): Could not fetch live data — ${result.error}\n`;
+      context += `   → Still mention this hospital with its contact details so the user can call.\n\n`;
       continue;
     }
 
     context += `HOSPITAL: ${result.source}\n`;
     context += `SOURCE URL: ${result.sourceUrl}\n`;
     context += `FETCHED AT: ${result.fetchedAt} (Pakistan Time)\n`;
-    context += `CITY: ${city}\n`;
 
     if (result.doctors.length === 0) {
-      context += `DOCTORS FOUND: None matching the requested specialty.\n`;
+      context += `DOCTORS FOUND: 0 matching "${specialtyLabel}" in the live data.\n`;
+      context += `→ Tell the user no matching doctors were found and direct them to call the hospital or visit the website.\n`;
     } else {
       context += `DOCTORS FOUND (${result.doctors.length}):\n`;
       result.doctors.forEach((d, i) => {
-        context += `${i + 1}. Name: ${d.name}\n`;
-        context += `   Specialty: ${d.speciality}\n`;
-        context += `   OPD Days: ${d.opd}\n`;
-        context += `   Timing: ${d.timing}\n`;
-        context += `   Hospital Phone: ${d.hospitalPhone}\n`;
-        context += `   Hospital Address: ${d.hospitalAddress}\n`;
+        context += `\n  ${i + 1}. Name: ${d.name}\n`;
+        context += `     Speciality: ${d.speciality}\n`;
+        context += `     OPD Days: ${d.opd || "Contact hospital"}\n`;
+        context += `     Timing: ${d.timing || "Contact hospital"}\n`;
+        context += `     Hospital: ${d.hospital}\n`;
+        context += `     Phone: ${d.hospitalPhone}\n`;
+        context += `     Address: ${d.hospitalAddress}\n`;
       });
     }
     context += `\n`;
@@ -128,25 +180,32 @@ router.post("/chat/message", async (req, res): Promise<void> => {
   try {
     let systemPrompt = SYSTEM_PROMPT;
 
-    // If the user is asking about doctors/hospitals in a city, fetch live data
-    if (isLocalDoctorQuery(message)) {
-      const city = detectCity(message);
-      if (city) {
-        req.log.info({ message, city }, "Fetching live hospital data for local doctor query");
+    // Trigger doctor search on symptoms OR explicit doctor request — city is optional
+    if (isDoctorOrSymptomQuery(message)) {
+      const city = detectCity(message); // may be null
+      const specialties = extractSpecialtyKeywords(message);
 
-        try {
-          const results = await searchDoctorsInCity(message, city);
-          const doctorContext = buildDoctorContext(results, city);
-          systemPrompt = `${SYSTEM_PROMPT}\n\n${doctorContext}`;
-          req.log.info({ city, resultCount: results.length }, "Live hospital data fetched successfully");
-        } catch (fetchErr) {
-          req.log.warn({ fetchErr }, "Failed to fetch live hospital data, proceeding without it");
-          systemPrompt = `${SYSTEM_PROMPT}\n\n[LIVE DATA: Failed to fetch hospital data. Advise the user to visit kmh.org.pk/doctors/ for Karachi, or check oladoc.com and marham.pk. Do not make up any doctor names or numbers.]`;
-        }
+      req.log.info({ message, city, specialties }, "Doctor/symptom query — fetching hospital data");
+
+      try {
+        const results = await searchDoctorsInCity(message, city);
+        const doctorContext = buildDoctorContext(results, city, specialties);
+        systemPrompt = `${SYSTEM_PROMPT}\n\n${doctorContext}`;
+        req.log.info(
+          { city: city ?? "all", hospitalCount: results.length, specialties },
+          "Hospital data fetched successfully"
+        );
+      } catch (fetchErr) {
+        req.log.warn({ fetchErr }, "Failed to fetch hospital data, proceeding without it");
+        systemPrompt =
+          `${SYSTEM_PROMPT}\n\n` +
+          `[LIVE DATA: Could not fetch hospital data at this time. ` +
+          `Recommend the user visits oladoc.com or marham.pk to find doctors, ` +
+          `or call KMH Karachi: 021-111-564-111 / AKUH Karachi: 021-111-911-911. ` +
+          `Do not invent any doctor names or numbers.]`;
       }
     }
 
-    // Stream response using chat completions
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
       { role: "system", content: systemPrompt },
       ...recentHistory,
