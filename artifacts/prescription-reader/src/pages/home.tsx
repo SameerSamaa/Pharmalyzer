@@ -241,7 +241,7 @@ export function Home() {
     <div className="max-w-3xl mx-auto space-y-6 sm:space-y-8">
       <div className="text-center space-y-3">
         <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-foreground">
-          Intelligent Prescription Analysis
+          AI Powered Prescription Intelligence
         </h1>
         <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
           Take a photo of any prescription and let AI identify medicines, explain their uses, and summarize important details in a simple, understandable way.
