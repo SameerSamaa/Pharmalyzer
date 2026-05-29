@@ -172,7 +172,7 @@ export function Voice() {
         {!hasMessages && (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-2">
             <p className="text-sm text-muted-foreground">
-              Tap the mic and ask SUR anything — medicines, symptoms, or finding a doctor.
+              Tap the mic and ask SUR anything, medicines, symptoms, or finding a doctor.
             </p>
           </div>
         )}
