@@ -92,7 +92,17 @@ export function Login() {
 
               {/* Password */}
               <div className="space-y-1.5">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <button
+                    type="button"
+                    onClick={() => setLocation("/forgot-password")}
+                    className="text-xs font-medium text-primary hover:underline"
+                    tabIndex={-1}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <div className="relative">
                   <Input
                     id="password"

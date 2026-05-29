@@ -11,6 +11,8 @@ import { Chat } from "@/pages/chat";
 import { Voice } from "@/pages/voice";
 import { Login } from "@/pages/login";
 import { Signup } from "@/pages/signup";
+import { ForgotPassword } from "@/pages/forgot-password";
+import { ResetPassword } from "@/pages/reset-password";
 import { AuthProvider, useAuth } from "@/context/auth";
 import { PendingUploadProvider } from "@/context/pending-upload";
 import { Loader2 } from "lucide-react";
@@ -37,6 +39,8 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/">
         {() => (
           <Layout>

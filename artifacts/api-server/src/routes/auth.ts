@@ -1,10 +1,24 @@
 import { Router, type IRouter } from "express";
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, usersTable, passwordResetTokensTable } from "@workspace/db";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { sendEmail, buildResetEmail } from "../lib/email";
 
 const router: IRouter = Router();
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function appBaseUrl(): string {
+  const domain = (process.env.REPLIT_DOMAINS ?? "").split(",")[0]?.trim();
+  if (domain) return `https://${domain}`;
+  return "http://localhost:5000";
+}
 
 const emailSchema = z.string().email("Please enter a valid email address");
 
@@ -28,8 +42,12 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-const resetPasswordSchema = z.object({
+const forgotPasswordSchema = z.object({
   email: emailSchema,
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Reset token is required"),
   password: passwordSchema,
 });
 
@@ -108,6 +126,120 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     res.json({ id: user.id, email: user.email });
   } catch (err) {
     req.log.error({ err }, "Login error");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST /api/auth/forgot-password
+router.post("/auth/forgot-password", async (req, res): Promise<void> => {
+  const result = forgotPasswordSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ error: result.error.issues[0]?.message ?? "Invalid input" });
+    return;
+  }
+
+  const email = result.data.email.toLowerCase();
+  // Always respond success to avoid revealing whether an account exists.
+  const genericResponse = {
+    ok: true,
+    message: "If an account exists for that email, a reset link has been sent.",
+  };
+
+  try {
+    const [user] = await db
+      .select({ id: usersTable.id, email: usersTable.email })
+      .from(usersTable)
+      .where(eq(usersTable.email, email))
+      .limit(1);
+
+    if (!user) {
+      res.json(genericResponse);
+      return;
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+
+    await db.insert(passwordResetTokensTable).values({
+      userId: user.id,
+      tokenHash: hashToken(token),
+      expiresAt,
+    });
+
+    const resetUrl = `${appBaseUrl()}/reset-password?token=${token}`;
+    const { subject, html, text } = buildResetEmail(resetUrl);
+    try {
+      await sendEmail({ to: user.email, subject, html, text });
+      req.log.info({ userId: user.id }, "Password reset email sent");
+    } catch (sendErr) {
+      // Don't leak account existence via a differential error response —
+      // log the failure internally but still return the generic success.
+      req.log.error({ err: sendErr, userId: user.id }, "Password reset email send failed");
+    }
+
+    res.json(genericResponse);
+  } catch (err) {
+    req.log.error({ err }, "Forgot password error");
+    // Generic success here too, so failures don't reveal whether the email exists.
+    res.json(genericResponse);
+  }
+});
+
+// POST /api/auth/reset-password
+router.post("/auth/reset-password", async (req, res): Promise<void> => {
+  const result = resetPasswordSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ error: result.error.issues[0]?.message ?? "Invalid input" });
+    return;
+  }
+
+  const { token, password } = result.data;
+
+  try {
+    const tokenHash = hashToken(token);
+    const now = new Date();
+
+    // Atomically claim the token: only one concurrent request can flip usedAt
+    // from null while it's still valid. The RETURNING row proves we won the race.
+    const [claimed] = await db
+      .update(passwordResetTokensTable)
+      .set({ usedAt: now })
+      .where(
+        and(
+          eq(passwordResetTokensTable.tokenHash, tokenHash),
+          isNull(passwordResetTokensTable.usedAt),
+          gt(passwordResetTokensTable.expiresAt, now)
+        )
+      )
+      .returning();
+
+    if (!claimed) {
+      res.status(400).json({ error: "This reset link is invalid or has expired." });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await db
+      .update(usersTable)
+      .set({ passwordHash })
+      .where(eq(usersTable.id, claimed.userId));
+
+    // Invalidate any other outstanding reset tokens for this user so older
+    // links can't be used after a successful reset.
+    await db
+      .update(passwordResetTokensTable)
+      .set({ usedAt: now })
+      .where(
+        and(
+          eq(passwordResetTokensTable.userId, claimed.userId),
+          isNull(passwordResetTokensTable.usedAt)
+        )
+      );
+
+    req.log.info({ userId: claimed.userId }, "Password reset completed");
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Reset password error");
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
