@@ -53,9 +53,17 @@ export function useVoiceRecord({ onTranscript, onError }: UseVoiceRecordOptions)
     setState("transcribing");
 
     const blob: Blob = await new Promise((resolve) => {
-      rec.onstop = () => {
+      const finalize = () => {
         const type = rec.mimeType || chunksRef.current[0]?.type || "audio/webm";
         resolve(new Blob(chunksRef.current, { type }));
+      };
+      // Capture the final chunk that some browsers deliver right before/after stop.
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      rec.onstop = () => {
+        // give any trailing dataavailable a tick to land first
+        setTimeout(finalize, 0);
       };
       try {
         rec.requestData?.();
@@ -140,7 +148,10 @@ export function useVoiceRecord({ onTranscript, onError }: UseVoiceRecordOptions)
 
     rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
     try {
-      rec.start();
+      // Timeslice makes the recorder emit chunks during recording, which is far
+      // more reliable on mobile (esp. Android/iOS) than relying on a single
+      // flush at stop().
+      rec.start(250);
     } catch (err) {
       stream.getTracks().forEach((t) => t.stop());
       onError?.({ kind: "unknown", message: `Could not start recording. ${(err as Error)?.message ?? ""}` });
