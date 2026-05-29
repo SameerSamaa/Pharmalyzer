@@ -27,7 +27,44 @@ export function Voice() {
   const audioUrlRef = useRef<string | null>(null);
   const speakAbortRef = useRef<AbortController | null>(null);
   const answerModeRef = useRef<AnswerMode>("voice");
+  const audioUnlockedRef = useRef(false);
   const { toast } = useToast();
+
+  // A tiny silent WAV used to "unlock" the audio element on a user gesture.
+  const SILENT_AUDIO =
+    "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+
+  const ensureAudioEl = useCallback(() => {
+    if (!audioRef.current) audioRef.current = new Audio();
+    return audioRef.current;
+  }, []);
+
+  // Must be called from within a user gesture (e.g. mic tap). Playing a silent
+  // clip here satisfies the browser autoplay policy so a later, async play()
+  // (after the TTS round-trip) isn't blocked — the cause of intermittent
+  // "playback failed" errors when the network is slow.
+  const primeAudio = useCallback(() => {
+    const audio = ensureAudioEl();
+    try {
+      audio.muted = true;
+      audio.src = SILENT_AUDIO;
+      const p = audio.play();
+      if (p && typeof p.then === "function") {
+        p.then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.muted = false;
+          audioUnlockedRef.current = true;
+        }).catch(() => {
+          audio.muted = false;
+        });
+      } else {
+        audioUnlockedRef.current = true;
+      }
+    } catch {
+      audio.muted = false;
+    }
+  }, [ensureAudioEl]);
 
   useEffect(() => {
     answerModeRef.current = answerMode;
@@ -74,11 +111,8 @@ export function Voice() {
       revokeUrl();
       const url = URL.createObjectURL(blob);
       audioUrlRef.current = url;
-      let audio = audioRef.current;
-      if (!audio) {
-        audio = new Audio();
-        audioRef.current = audio;
-      }
+      const audio = ensureAudioEl();
+      audio.muted = false;
       audio.src = url;
       audio.onended = () => {
         revokeUrl();
@@ -88,14 +122,23 @@ export function Voice() {
         revokeUrl();
         setStatus("idle");
       };
-      await audio.play();
+      try {
+        await audio.play();
+      } catch (playErr) {
+        if ((playErr as Error)?.name === "AbortError") return;
+        // Autoplay was blocked (gesture expired). Retry once on the next tick —
+        // the element was primed on the mic tap so this usually succeeds.
+        await new Promise((r) => setTimeout(r, 60));
+        if (controller.signal.aborted) return;
+        await audio.play();
+      }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") return;
       revokeUrl();
       setStatus("idle");
-      toast({ title: "Voice playback failed", description: "Showing the answer as text instead." });
+      toast({ title: "Voice playback unavailable", description: "Showing the answer as text instead." });
     }
-  }, [stopSpeaking, revokeUrl, toast]);
+  }, [stopSpeaking, revokeUrl, ensureAudioEl, toast]);
 
   const { messages, isStreaming, sendMessage, clearChat } = useSurChat(
     useCallback((text: string) => {
@@ -148,6 +191,9 @@ export function Voice() {
     }
     if (voice.state === "transcribing") return;
     stopSpeaking();
+    // Unlock audio within this user gesture so the later TTS playback isn't
+    // blocked by the browser autoplay policy when the response is slow.
+    if (answerModeRef.current === "voice") primeAudio();
     setStatus("idle");
     setTranscript("");
     await voice.start();
