@@ -209,7 +209,7 @@ export function Chat() {
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-4 py-2">
               <Hospital className="w-3.5 h-3.5 text-primary shrink-0" />
-              <span>Live doctor data from KMH, Saifee, LNH &amp; AKUH — 4 Karachi hospitals</span>
+              <span>Live doctor data from KMH, Saifee, LNH &amp; AKUH, 4 Karachi hospitals</span>
             </div>
           </div>
         ) : (
