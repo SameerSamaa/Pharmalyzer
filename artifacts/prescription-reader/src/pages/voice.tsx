@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, Volume2, VolumeX, RotateCcw, Loader2, Bot, User } from "lucide-react";
+import { Mic, MicOff, Volume2, MessageSquareText, RotateCcw, Loader2, Bot, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurLogo } from "@/components/sur-logo";
 import { useSurChat } from "@/hooks/use-sur-chat";
@@ -16,47 +16,100 @@ const STATUS_TEXT: Record<VoiceStatus, string> = {
   speaking: "SUR is speaking...",
 };
 
+type AnswerMode = "voice" | "text";
+
 export function Voice() {
   const [status, setStatus] = useState<VoiceStatus>("idle");
-  const [speakerOn, setSpeakerOn] = useState(true);
+  const [answerMode, setAnswerMode] = useState<AnswerMode>("voice");
   const [transcript, setTranscript] = useState("");
 
-  const synthRef = useRef(window.speechSynthesis);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const speakAbortRef = useRef<AbortController | null>(null);
+  const answerModeRef = useRef<AnswerMode>("voice");
   const { toast } = useToast();
 
-  const speakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speak = useCallback((text: string) => {
-    if (speakTimerRef.current) {
-      clearTimeout(speakTimerRef.current);
-      speakTimerRef.current = null;
+  useEffect(() => {
+    answerModeRef.current = answerMode;
+  }, [answerMode]);
+
+  const revokeUrl = useCallback(() => {
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
     }
-    if (!speakerOn) {
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    speakAbortRef.current?.abort();
+    speakAbortRef.current = null;
+    const a = audioRef.current;
+    if (a) {
+      a.pause();
+      a.src = "";
+    }
+    revokeUrl();
+  }, [revokeUrl]);
+
+  const speak = useCallback(async (text: string) => {
+    stopSpeaking();
+    const clean = stripMarkdown(text).trim();
+    if (!clean) {
       setStatus("idle");
       return;
     }
-    synthRef.current.cancel();
-    const clean = stripMarkdown(text);
-    const utterance = new SpeechSynthesisUtterance(clean);
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-    utterance.onstart = () => setStatus("speaking");
-    utterance.onend = () => setStatus("idle");
-    utterance.onerror = () => setStatus("idle");
-    synthRef.current.speak(utterance);
-    // iOS Safari often never fires onend — fall back to a time estimate
-    // based on text length (~12 chars/sec) plus a generous buffer.
-    const estimateMs = Math.min(60000, Math.max(2500, (clean.length / 12) * 1000 + 1500));
-    speakTimerRef.current = setTimeout(() => {
+    const controller = new AbortController();
+    speakAbortRef.current = controller;
+    setStatus("speaking");
+    try {
+      const resp = await fetch("/api/voice/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean }),
+        signal: controller.signal,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      if (controller.signal.aborted) return;
+      revokeUrl();
+      const url = URL.createObjectURL(blob);
+      audioUrlRef.current = url;
+      let audio = audioRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audioRef.current = audio;
+      }
+      audio.src = url;
+      audio.onended = () => {
+        revokeUrl();
+        setStatus("idle");
+      };
+      audio.onerror = () => {
+        revokeUrl();
+        setStatus("idle");
+      };
+      await audio.play();
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") return;
+      revokeUrl();
       setStatus("idle");
-    }, estimateMs);
-  }, [speakerOn]);
+      toast({ title: "Voice playback failed", description: "Showing the answer as text instead." });
+    }
+  }, [stopSpeaking, revokeUrl, toast]);
 
   const { messages, isStreaming, sendMessage, clearChat } = useSurChat(
     useCallback((text: string) => {
-      setStatus("thinking");
-      setTimeout(() => speak(text), 100);
+      if (answerModeRef.current === "voice") {
+        void speak(text);
+      } else {
+        setStatus("idle");
+      }
     }, [speak])
   );
+
+  useEffect(() => {
+    return () => stopSpeaking();
+  }, [stopSpeaking]);
 
   const voice = useVoiceRecord({
     onTranscript: useCallback((text: string) => {
@@ -94,25 +147,18 @@ export function Voice() {
       return;
     }
     if (voice.state === "transcribing") return;
-    synthRef.current.cancel();
+    stopSpeaking();
     setStatus("idle");
     setTranscript("");
     await voice.start();
   };
 
   const handleClear = () => {
-    synthRef.current.cancel();
+    stopSpeaking();
     voice.cancel();
     setStatus("idle");
     setTranscript("");
     clearChat();
-  };
-
-  const toggleSpeaker = () => {
-    setSpeakerOn((s) => {
-      if (s) synthRef.current.cancel();
-      return !s;
-    });
   };
 
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
@@ -136,9 +182,6 @@ export function Voice() {
           SUR Voice
         </h1>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={toggleSpeaker} className="text-muted-foreground hover:text-foreground" title={speakerOn ? "Mute SUR" : "Unmute SUR"}>
-            {speakerOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </Button>
           {hasMessages && (
             <Button variant="ghost" size="sm" onClick={handleClear} className="gap-1.5 text-muted-foreground">
               <RotateCcw className="w-4 h-4" />
@@ -165,6 +208,36 @@ export function Voice() {
         {transcript && status !== "thinking" && (
           <p className="text-sm italic text-foreground/70 max-w-xs text-center px-4 line-clamp-2">"{transcript}"</p>
         )}
+
+        {/* Answer mode toggle */}
+        <div className="mt-1 inline-flex items-center rounded-full border border-border bg-card p-0.5 text-xs">
+          <button
+            type="button"
+            onClick={() => setAnswerMode("voice")}
+            aria-pressed={answerMode === "voice"}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition-colors ${
+              answerMode === "voice" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            Voice answer
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              stopSpeaking();
+              setStatus("idle");
+              setAnswerMode("text");
+            }}
+            aria-pressed={answerMode === "text"}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition-colors ${
+              answerMode === "text" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <MessageSquareText className="w-3.5 h-3.5" />
+            Text only
+          </button>
+        </div>
       </div>
 
       {/* Conversation preview */}

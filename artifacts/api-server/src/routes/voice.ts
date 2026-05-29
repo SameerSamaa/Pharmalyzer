@@ -2,8 +2,22 @@ import { Router, type IRouter } from "express";
 import express from "express";
 import { toFile } from "openai";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
 
 const router: IRouter = Router();
+
+function stripMarkdownForSpeech(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-•]\s+/gm, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, ". ")
+    .trim();
+}
 
 const MEDICAL_PROMPT = [
   "The user is asking a medical question in English (US, Indian, or Pakistani accent).",
@@ -49,5 +63,25 @@ router.post(
     }
   }
 );
+
+router.post("/voice/speak", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const rawText = typeof req.body?.text === "string" ? req.body.text : "";
+    const text = stripMarkdownForSpeech(rawText).slice(0, 4000);
+    if (!text) {
+      return res.status(400).json({ error: "No text provided" });
+    }
+
+    const audio = await textToSpeech(text, "nova", "mp3");
+    req.log.info({ textLength: text.length, audioBytes: audio.length }, "Generated voice answer");
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(audio);
+  } catch (err) {
+    req.log.error({ err }, "Voice synthesis failed");
+    return res.status(500).json({ error: "Voice synthesis failed" });
+  }
+});
 
 export default router;
