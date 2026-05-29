@@ -28,6 +28,11 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+const resetPasswordSchema = z.object({
+  email: emailSchema,
+  password: passwordSchema,
+});
+
 declare module "express-session" {
   interface SessionData {
     userId: number;
