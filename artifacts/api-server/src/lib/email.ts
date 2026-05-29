@@ -17,10 +17,34 @@ interface SendEmailArgs {
 }
 
 export async function sendEmail({ to, subject, html, text }: SendEmailArgs): Promise<void> {
+  // While Resend has no verified domain, it only delivers to the account owner's
+  // address. Setting RESEND_TEST_DELIVERY_EMAIL routes every message to that
+  // verified inbox so the flow can be tested, while keeping the intended
+  // recipient visible in the email body and subject.
+  const override = process.env.RESEND_TEST_DELIVERY_EMAIL?.trim();
+  let actualTo = to;
+  let actualSubject = subject;
+  let actualHtml = html;
+  let actualText = text;
+
+  if (override && override.toLowerCase() !== to.toLowerCase()) {
+    actualTo = override;
+    actualSubject = `[for ${to}] ${subject}`;
+    const notice = `This message was intended for ${to} but routed to you because Resend is in test mode (no verified domain).`;
+    actualHtml = `<div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 12px 24px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; font-size: 12px;">${notice}</div>${html}`;
+    actualText = `${notice}\n\n${text}`;
+  }
+
   const response = await connectors.proxy("resend", "/emails", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ from: FROM_ADDRESS, to, subject, html, text }),
+    body: JSON.stringify({
+      from: FROM_ADDRESS,
+      to: actualTo,
+      subject: actualSubject,
+      html: actualHtml,
+      text: actualText,
+    }),
   });
 
   if (!response.ok) {
