@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { useListPrescriptions, useGetPrescriptionSummary, useDeletePrescription, getListPrescriptionsQueryKey, getGetPrescriptionSummaryQueryKey } from "@workspace/api-client-react";
 import { format } from "date-fns";
-import { FileText, Trash2, Pill, Stethoscope, CalendarClock, ChevronRight, Loader2 } from "lucide-react";
+import { FileText, Trash2, Pill, Stethoscope, NotebookText, CalendarClock, ChevronRight, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,8 +39,9 @@ export function History() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="bg-primary/5 border-primary/10">
           <CardContent className="p-6 flex items-center gap-4">
-            <div className="p-3 bg-primary/20 rounded-xl text-primary">
-              <Stethoscope className="w-6 h-6" />
+            <div className="relative p-3 bg-primary/20 rounded-xl text-primary">
+              <NotebookText className="w-6 h-6" />
+              <Stethoscope className="w-3.5 h-3.5 absolute -bottom-0.5 -right-0.5 bg-primary text-primary-foreground rounded-full p-[1px] ring-2 ring-[var(--card,white)]" />
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">Total Scans</p>
