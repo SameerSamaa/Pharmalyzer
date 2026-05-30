@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "pNy7Ew1mBp9E9uVgog7M3"
+uri = "file://exports/pharmalyzer-source.tar.gz"
+type = "unspecified"
+title = "Pharmalyzer — Full Source Code"
